@@ -1,4 +1,4 @@
-import { Candle, DashboardState, Bias, SignalCard, SignalStrength, Timeframe } from './types';
+import { Candle, DashboardState, Bias, SignalCard, SignalStrength, Timeframe, ExecutionState } from './types';
 
 export function fmt(n?: number, digits = 2) {
   return typeof n === 'number' && Number.isFinite(n)
@@ -109,6 +109,10 @@ function latestSwingLow(candles: Candle[], lookback = 20) {
   return Math.min(...candles.slice(-lookback).map((c) => c.low));
 }
 
+function clampScore(n: number) {
+  return Math.max(0, Math.min(100, Math.round(n)));
+}
+
 function buildSignals(params: {
   price: number;
   bias: Bias;
@@ -130,7 +134,6 @@ function buildSignals(params: {
 }) {
   const {
     price,
-    bias,
     trendState,
     rsi,
     ema21,
@@ -152,10 +155,8 @@ function buildSignals(params: {
 
   const above21 = price > ema21;
   const above50 = price > ema50;
-  const above200 = price > ema200;
   const below21 = price < ema21;
   const below50 = price < ema50;
-  const below200 = price < ema200;
 
   const bullishStack = ema21 > ema50 && ema50 > ema200;
   const bearishStack = ema21 < ema50 && ema50 < ema200;
@@ -272,6 +273,148 @@ function buildSignals(params: {
   return signals.slice(0, 4);
 }
 
+function getExecutionState(params: {
+  price: number;
+  bias: Bias;
+  trendState: 'uptrend' | 'downtrend' | 'range';
+  rsi: number;
+  ema21: number;
+  ema50: number;
+  ema200: number;
+  support1: number;
+  resistance1: number;
+  longEntry: [number, number];
+  longStop: number;
+  longTargets: number[];
+  shortEntry: [number, number];
+  shortStop: number;
+  shortTargets: number[];
+}): ExecutionState {
+  const {
+    price,
+    bias,
+    trendState,
+    rsi,
+    ema21,
+    ema50,
+    ema200,
+    support1,
+    resistance1,
+    longEntry,
+    longStop,
+    longTargets,
+    shortEntry,
+    shortStop,
+    shortTargets,
+  } = params;
+
+  const longRR =
+    ((longTargets[1] ?? longTargets[0]) - longEntry[1]) / Math.max(longEntry[1] - longStop, 1);
+
+  const shortRR =
+    (shortEntry[0] - (shortTargets[1] ?? shortTargets[0])) / Math.max(shortStop - shortEntry[0], 1);
+
+  let longLocation: ExecutionState['longLocation'] = 'early';
+  if (price >= longEntry[0] && price <= longEntry[1]) longLocation = 'active';
+  else if (price > longEntry[1] && price < (longTargets[0] ?? longEntry[1])) longLocation = 'late';
+  else if (price < longStop) longLocation = 'invalid';
+
+  let shortLocation: ExecutionState['shortLocation'] = 'early';
+  if (price >= shortEntry[0] && price <= shortEntry[1]) shortLocation = 'active';
+  else if (price < shortEntry[0] && price > (shortTargets[0] ?? shortEntry[0])) shortLocation = 'late';
+  else if (price > shortStop) shortLocation = 'invalid';
+
+  let longQuality = 50;
+  if (trendState === 'uptrend') longQuality += 18;
+  if (bias === 'bullish') longQuality += 12;
+  if (ema21 > ema50 && ema50 > ema200) longQuality += 10;
+  if (rsi >= 52 && rsi <= 68) longQuality += 8;
+  if (price <= longEntry[1]) longQuality += 10;
+  if (price > resistance1) longQuality -= 12;
+  if (longRR < 2) longQuality -= 18;
+  if (longLocation === 'late') longQuality -= 14;
+  if (longLocation === 'invalid') longQuality = 5;
+
+  let shortQuality = 50;
+  if (trendState === 'downtrend') shortQuality += 18;
+  if (bias === 'bearish') shortQuality += 12;
+  if (ema21 < ema50 && ema50 < ema200) shortQuality += 10;
+  if (rsi <= 48 && rsi >= 32) shortQuality += 8;
+  if (price >= shortEntry[0]) shortQuality += 10;
+  if (price < support1) shortQuality -= 12;
+  if (shortRR < 2) shortQuality -= 18;
+  if (shortLocation === 'late') shortQuality -= 14;
+  if (shortLocation === 'invalid') shortQuality = 5;
+
+  longQuality = clampScore(longQuality);
+  shortQuality = clampScore(shortQuality);
+
+  let longTone: ExecutionState['longTone'] = 'neutral';
+  if (longQuality >= 75) longTone = 'good';
+  else if (longQuality >= 55) longTone = 'neutral';
+  else if (longQuality >= 30) longTone = 'warning';
+  else longTone = 'danger';
+
+  let shortTone: ExecutionState['shortTone'] = 'neutral';
+  if (shortQuality >= 75) shortTone = 'good';
+  else if (shortQuality >= 55) shortTone = 'neutral';
+  else if (shortQuality >= 30) shortTone = 'warning';
+  else shortTone = 'danger';
+
+  const longRiskState =
+    longLocation === 'invalid'
+      ? 'Invalidated'
+      : longLocation === 'late'
+      ? 'Late / avoid chase'
+      : longRR < 2
+      ? 'Weak R:R'
+      : trendState === 'downtrend'
+      ? 'Counter-trend'
+      : 'Acceptable';
+
+  const shortRiskState =
+    shortLocation === 'invalid'
+      ? 'Invalidated'
+      : shortLocation === 'late'
+      ? 'Late / avoid pressing'
+      : shortRR < 2
+      ? 'Weak R:R'
+      : trendState === 'uptrend'
+      ? 'Counter-trend'
+      : 'Acceptable';
+
+  const longExecutionNote =
+    longLocation === 'active'
+      ? 'Price is inside the long entry area. Wait for hold or reaction confirmation.'
+      : longLocation === 'early'
+      ? 'Price has not reached long entry yet. Patience is better than forcing an early fill.'
+      : longLocation === 'late'
+      ? 'Price has already moved away from the long entry zone. Chasing weakens R:R.'
+      : 'Long setup is invalid unless price rebuilds structure above the stop area.';
+
+  const shortExecutionNote =
+    shortLocation === 'active'
+      ? 'Price is inside the short entry area. Prefer rejection or failed reclaim confirmation.'
+      : shortLocation === 'early'
+      ? 'Price has not reached short entry yet. Let price come into supply.'
+      : shortLocation === 'late'
+      ? 'Price has already moved away from the short entry zone. Pressing here reduces edge.'
+      : 'Short setup is invalid unless price re-establishes acceptance below the stop area.';
+
+  return {
+    longLocation,
+    shortLocation,
+    longQuality,
+    shortQuality,
+    longRiskState,
+    shortRiskState,
+    longExecutionNote,
+    shortExecutionNote,
+    longTone,
+    shortTone,
+  };
+}
+
 export function buildStateFromCandles(
   candles: Candle[],
   sourceTime: string,
@@ -335,6 +478,9 @@ export function buildStateFromCandles(
     'desc'
   );
 
+  const finalLongTargets = longTargets.length ? longTargets : [last.close * 1.01, last.close * 1.02];
+  const finalShortTargets = shortTargets.length ? shortTargets : [last.close * 0.99, last.close * 0.98];
+
   const signals = buildSignals({
     price: last.close,
     bias,
@@ -349,10 +495,28 @@ export function buildStateFromCandles(
     resistance2,
     longEntry,
     longStop,
-    longTargets: longTargets.length ? longTargets : [last.close * 1.01, last.close * 1.02],
+    longTargets: finalLongTargets,
     shortEntry,
     shortStop,
-    shortTargets: shortTargets.length ? shortTargets : [last.close * 0.99, last.close * 0.98],
+    shortTargets: finalShortTargets,
+  });
+
+  const execution = getExecutionState({
+    price: last.close,
+    bias,
+    trendState,
+    rsi: latestRsi,
+    ema21,
+    ema50,
+    ema200,
+    support1,
+    resistance1,
+    longEntry,
+    longStop,
+    longTargets: finalLongTargets,
+    shortEntry,
+    shortStop,
+    shortTargets: finalShortTargets,
   });
 
   return {
@@ -387,12 +551,24 @@ export function buildStateFromCandles(
 
     longEntry,
     longStop,
-    longTargets: longTargets.length ? longTargets : [last.close * 1.01, last.close * 1.02],
+    longTargets: finalLongTargets,
 
     shortEntry,
     shortStop,
-    shortTargets: shortTargets.length ? shortTargets : [last.close * 0.99, last.close * 0.98],
-
+    shortTargets: finalShortTargets,
+   
+        execution: {
+      longLocation: 'early',
+      shortLocation: 'early',
+      longQuality: 50,
+      shortQuality: 50,
+      longRiskState: 'Acceptable',
+      shortRiskState: 'Acceptable',
+      longExecutionNote: 'Waiting for cleaner long location.',
+      shortExecutionNote: 'Waiting for cleaner short location.',
+      longTone: 'neutral',
+      shortTone: 'neutral',
+    },
     dxy: context?.dxy ?? 'Unavailable',
     spy: context?.spy ?? 'Unavailable',
     ethbtc: context?.ethbtc ?? 'Unavailable',
