@@ -149,6 +149,25 @@ export default function DashboardClient() {
       ? 'neutral'
       : 'warn';
 
+  const supportLevels = [state.longEntry[0], state.longEntry[1], ...state.supports]
+    .filter((level) => Number.isFinite(level))
+    .sort((a, b) => b - a);
+
+  const resistanceLevels = [state.shortEntry[0], state.shortEntry[1], ...state.resistances]
+    .filter((level) => Number.isFinite(level))
+    .sort((a, b) => a - b);
+
+  const nearestSupport =
+    supportLevels.find((level) => level <= state.price + 120) ?? supportLevels[0] ?? state.longEntry[0];
+
+  const nearestResistance =
+    resistanceLevels.find((level) => level >= state.price - 120) ??
+    resistanceLevels[0] ??
+    state.shortEntry[0];
+
+  const triggerBelow = Math.min(nearestSupport, state.longEntry[0]);
+  const triggerAbove = Math.max(nearestResistance, state.shortEntry[0]);
+
   const tradeNowStatus =
     readinessScore >= 70
       ? state.bias === 'bullish'
@@ -162,19 +181,19 @@ export default function DashboardClient() {
 
   const nextTrigger =
     tradeNowStatus === 'LONG READY'
-      ? `Watch for reclaim / reaction in ${fmt(state.longEntry[0], 0)} - ${fmt(state.longEntry[1], 0)}`
+      ? `Watch ${fmt(state.longEntry[0], 0)} - ${fmt(state.longEntry[1], 0)} for reaction. Best confirmation is reclaim strength back above ${fmt(state.longEntry[1], 0)} with room toward ${fmt(state.longTargets[0], 0)}.`
       : tradeNowStatus === 'SHORT READY'
-      ? `Watch for rejection / weakness in ${fmt(state.shortEntry[0], 0)} - ${fmt(state.shortEntry[1], 0)}`
+      ? `Watch ${fmt(state.shortEntry[0], 0)} - ${fmt(state.shortEntry[1], 0)} for rejection. Best confirmation is weakness back below ${fmt(state.shortEntry[0], 0)} with room toward ${fmt(state.shortTargets[0], 0)}.`
       : tradeNowStatus === 'SETUP FORMING'
-      ? 'Wait for confirmation: sweep, reclaim, or clean breakout close'
-      : 'Wait for a cleaner zone touch or stronger confirmation signal';
+      ? `Wait for one of two things: sweep below ${fmt(triggerBelow, 0)} and reclaim, or breakout close above ${fmt(triggerAbove, 0)}.`
+      : `No entry in the middle. Let price either sweep below ${fmt(triggerBelow, 0)} or break above ${fmt(triggerAbove, 0)} first.`;
 
   const doNotTradeIf =
     state.bias === 'bullish'
-      ? `BTC loses ${fmt(state.longStop, 0)} with follow-through`
+      ? `BTC loses ${fmt(state.longStop, 0)} or keeps rejecting below ${fmt(triggerAbove, 0)}.`
       : state.bias === 'bearish'
-      ? `BTC reclaims above ${fmt(state.shortStop, 0)} and holds`
-      : 'Price stays stuck in mid-range with mixed structure';
+      ? `BTC reclaims ${fmt(state.shortStop, 0)} and holds above it with momentum.`
+      : `BTC keeps chopping between ${fmt(triggerBelow, 0)} and ${fmt(triggerAbove, 0)} without confirmation.`;
 
   const tradeNowBadgeClass =
     tradeNowStatus === 'LONG READY'
@@ -249,8 +268,17 @@ export default function DashboardClient() {
         <div className="metric-grid four" style={{ marginTop: 16 }}>
           <Metric label="Status" value={tradeNowStatus} />
           <Metric label="Execution Bias" value={state.bias} />
+          <Metric label="Sweep Below" value={`$${fmt(triggerBelow, 0)}`} />
+          <Metric label="Break Above" value={`$${fmt(triggerAbove, 0)}`} />
+        </div>
+
+        <div className="metric-grid three" style={{ marginTop: 10 }}>
           <Metric label="Confidence" value={state.confidence} />
           <Metric label="Trend State" value={state.trendState} />
+          <Metric
+            label="Primary Signal"
+            value={primarySignal ? primarySignal.title : 'No active signal'}
+          />
         </div>
 
         <div
