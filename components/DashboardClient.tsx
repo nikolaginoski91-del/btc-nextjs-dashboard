@@ -149,6 +149,42 @@ export default function DashboardClient() {
       ? 'neutral'
       : 'warn';
 
+  const tradeNowStatus =
+    readinessScore >= 70
+      ? state.bias === 'bullish'
+        ? 'LONG READY'
+        : state.bias === 'bearish'
+        ? 'SHORT READY'
+        : 'WAIT FOR CONFIRMATION'
+      : readinessScore >= 50
+      ? 'SETUP FORMING'
+      : 'NO TRADE NOW';
+
+  const nextTrigger =
+    tradeNowStatus === 'LONG READY'
+      ? `Watch for reclaim / reaction in ${fmt(state.longEntry[0], 0)} - ${fmt(state.longEntry[1], 0)}`
+      : tradeNowStatus === 'SHORT READY'
+      ? `Watch for rejection / weakness in ${fmt(state.shortEntry[0], 0)} - ${fmt(state.shortEntry[1], 0)}`
+      : tradeNowStatus === 'SETUP FORMING'
+      ? 'Wait for confirmation: sweep, reclaim, or clean breakout close'
+      : 'Wait for a cleaner zone touch or stronger confirmation signal';
+
+  const doNotTradeIf =
+    state.bias === 'bullish'
+      ? `BTC loses ${fmt(state.longStop, 0)} with follow-through`
+      : state.bias === 'bearish'
+      ? `BTC reclaims above ${fmt(state.shortStop, 0)} and holds`
+      : 'Price stays stuck in mid-range with mixed structure';
+
+  const tradeNowBadgeClass =
+    tradeNowStatus === 'LONG READY'
+      ? 'bullish'
+      : tradeNowStatus === 'SHORT READY'
+      ? 'bearish'
+      : tradeNowStatus === 'SETUP FORMING' || tradeNowStatus === 'WAIT FOR CONFIRMATION'
+      ? 'neutral'
+      : 'warn';
+
   return (
     <div className="container">
       <div className="topbar">
@@ -189,6 +225,60 @@ export default function DashboardClient() {
         </div>
       </div>
 
+
+      <div className="card section" style={{ marginBottom: 16 }}>
+        <div className="space-between" style={{ alignItems: 'center', gap: 12 }}>
+          <div>
+            <div
+              className="small"
+              style={{ color: 'var(--neutral)', textTransform: 'uppercase', letterSpacing: '.18em' }}
+            >
+              Operator decision layer
+            </div>
+            <h2 style={{ margin: '6px 0 0 0' }}>Can I Trade Now?</h2>
+          </div>
+
+          <span
+            className={`badge ${tradeNowBadgeClass}`}
+            style={{ fontSize: 13, fontWeight: 800, padding: '10px 14px', letterSpacing: '.05em' }}
+          >
+            {tradeNowStatus}
+          </span>
+        </div>
+
+        <div className="metric-grid four" style={{ marginTop: 16 }}>
+          <Metric label="Status" value={tradeNowStatus} />
+          <Metric label="Execution Bias" value={state.bias} />
+          <Metric label="Confidence" value={state.confidence} />
+          <Metric label="Trend State" value={state.trendState} />
+        </div>
+
+        <div
+          style={{
+            marginTop: 12,
+            border: '1px solid rgba(255,255,255,.08)',
+            background: 'rgba(255,255,255,.03)',
+            borderRadius: 16,
+            padding: 14,
+          }}
+        >
+          <div className="label">Next Trigger</div>
+          <div className="value" style={{ marginTop: 6 }}>{nextTrigger}</div>
+        </div>
+
+        <div
+          style={{
+            marginTop: 10,
+            border: '1px solid rgba(255,255,255,.08)',
+            background: 'rgba(255,255,255,.025)',
+            borderRadius: 16,
+            padding: 14,
+          }}
+        >
+          <div className="label">Do Not Trade If</div>
+          <div className="value" style={{ marginTop: 6 }}>{doNotTradeIf}</div>
+        </div>
+      </div>
       <div className="card section">
         <div className="space-between" style={{ alignItems: 'center', gap: 12 }}>
           <h2 style={{ margin: 0 }}>Trade Readiness</h2>
