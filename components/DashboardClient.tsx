@@ -14,7 +14,14 @@ import {
   Zap,
 } from 'lucide-react';
 import { buildStateFromCandles, FALLBACK_CANDLES, fmt } from '@/lib/market';
-import { DashboardState, LiveMode, SignalCard, Timeframe } from '@/lib/types';
+import {
+  DashboardState,
+  LiveMode,
+  SignalCard,
+  Timeframe,
+  ExecutionTone,
+  ExecutionLocation,
+} from '@/lib/types';
 
 type Candle = {
   time: number;
@@ -58,7 +65,12 @@ export default function DashboardClient() {
       const ctxJson =
         ctxRes.status === 'fulfilled' && ctxRes.value.ok ? await ctxRes.value.json() : {};
 
-      const nextState = buildStateFromCandles(btcJson.candles, new Date().toLocaleString(), ctxJson);
+      const nextState = buildStateFromCandles(
+        btcJson.candles,
+        new Date().toLocaleString(),
+        ctxJson
+      );
+
       setState(nextState);
       setActiveSignal(nextState.signals[0] ?? null);
       setMode(btcJson.source === 'coingecko' ? 'live-coingecko' : 'live-binance');
@@ -171,12 +183,20 @@ export default function DashboardClient() {
             <div>
               <div
                 className="small"
-                style={{ color: 'var(--neutral)', textTransform: 'uppercase', letterSpacing: '.18em' }}
+                style={{
+                  color: 'var(--neutral)',
+                  textTransform: 'uppercase',
+                  letterSpacing: '.18em',
+                }}
               >
                 Primary live signal
               </div>
-              <div style={{ fontSize: 24, fontWeight: 800, marginTop: 6 }}>{primarySignal.title}</div>
-              <div className="muted" style={{ marginTop: 8 }}>{primarySignal.note}</div>
+              <div style={{ fontSize: 24, fontWeight: 800, marginTop: 6 }}>
+                {primarySignal.title}
+              </div>
+              <div className="muted" style={{ marginTop: 8 }}>
+                {primarySignal.note}
+              </div>
             </div>
 
             <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
@@ -194,6 +214,28 @@ export default function DashboardClient() {
           </div>
         </div>
       ) : null}
+
+      <div
+        className="grid section"
+        style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}
+      >
+        <ExecutionCard
+          title="Long Execution"
+          location={state.execution.longLocation}
+          quality={state.execution.longQuality}
+          riskState={state.execution.longRiskState}
+          note={state.execution.longExecutionNote}
+          tone={state.execution.longTone}
+        />
+        <ExecutionCard
+          title="Short Execution"
+          location={state.execution.shortLocation}
+          quality={state.execution.shortQuality}
+          riskState={state.execution.shortRiskState}
+          note={state.execution.shortExecutionNote}
+          tone={state.execution.shortTone}
+        />
+      </div>
 
       <div className="tabbar">
         <button
@@ -323,7 +365,10 @@ export default function DashboardClient() {
                       <div className="muted" style={{ marginTop: 6 }}>{signal.trigger}</div>
                     </div>
 
-                    <div className="row" style={{ gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                    <div
+                      className="row"
+                      style={{ gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}
+                    >
                       <SignalTypeBadge type={signal.type} />
                       <StrengthBadge strength={signal.strength} />
                     </div>
@@ -456,7 +501,8 @@ export default function DashboardClient() {
             <ShieldAlert size={18} /> <strong>Live fetch issue</strong>
           </div>
           <div className="muted" style={{ marginTop: 8 }}>
-            {errorText}. The dashboard stays usable with fallback data while the hosted API route is fixed.
+            {errorText}. The dashboard stays usable with fallback data while the hosted API route
+            is fixed.
           </div>
         </div>
       ) : null}
@@ -677,6 +723,62 @@ function CandlestickChart({
           />
         ))}
 
+        {longEntry ? (
+          <ChartLabel
+            x={padLeft + 8}
+            y={y(longEntry[0]) - 8}
+            text={`Long Entry ${longEntry[0].toFixed(0)}`}
+            color="#22c55e"
+          />
+        ) : null}
+
+        {typeof longStop === 'number' ? (
+          <ChartLabel
+            x={padLeft + 8}
+            y={y(longStop) - 8}
+            text={`Long SL ${longStop.toFixed(0)}`}
+            color="#16a34a"
+          />
+        ) : null}
+
+        {longTargets.slice(0, 3).map((price, i) => (
+          <ChartLabel
+            key={`long-label-${i}-${price}`}
+            x={padLeft + 8}
+            y={y(price) - 8}
+            text={`L TP${i + 1} ${price.toFixed(0)}`}
+            color="#86efac"
+          />
+        ))}
+
+        {shortEntry ? (
+          <ChartLabel
+            x={width - 220}
+            y={y(shortEntry[0]) - 8}
+            text={`Short Entry ${shortEntry[0].toFixed(0)}`}
+            color="#ef4444"
+          />
+        ) : null}
+
+        {typeof shortStop === 'number' ? (
+          <ChartLabel
+            x={width - 220}
+            y={y(shortStop) - 8}
+            text={`Short SL ${shortStop.toFixed(0)}`}
+            color="#dc2626"
+          />
+        ) : null}
+
+        {shortTargets.slice(0, 3).map((price, i) => (
+          <ChartLabel
+            key={`short-label-${i}-${price}`}
+            x={width - 220}
+            y={y(price) - 8}
+            text={`S TP${i + 1} ${price.toFixed(0)}`}
+            color="#fca5a5"
+          />
+        ))}
+
         {candles.map((candle, i) => {
           const x = padLeft + i * stepX + stepX / 2;
           const openY = y(candle.open);
@@ -839,6 +941,96 @@ function TradeExecutionBox({
       </div>
       <div style={{ marginTop: 8, fontWeight: 800, fontSize: 17 }}>{value}</div>
     </div>
+  );
+}
+
+function ExecutionCard({
+  title,
+  location,
+  quality,
+  riskState,
+  note,
+  tone,
+}: {
+  title: string;
+  location: ExecutionLocation;
+  quality: number;
+  riskState: string;
+  note: string;
+  tone: ExecutionTone;
+}) {
+  const bg =
+    tone === 'good'
+      ? 'rgba(25,195,125,.12)'
+      : tone === 'neutral'
+      ? 'rgba(122,162,255,.10)'
+      : tone === 'warning'
+      ? 'rgba(245,185,66,.12)'
+      : 'rgba(255,93,93,.12)';
+
+  const border =
+    tone === 'good'
+      ? 'rgba(25,195,125,.28)'
+      : tone === 'neutral'
+      ? 'rgba(122,162,255,.25)'
+      : tone === 'warning'
+      ? 'rgba(245,185,66,.28)'
+      : 'rgba(255,93,93,.28)';
+
+  return (
+    <div
+      className="card"
+      style={{
+        background: bg,
+        border: `1px solid ${border}`,
+      }}
+    >
+      <div className="space-between" style={{ alignItems: 'center' }}>
+        <h2 style={{ margin: 0, fontSize: 18 }}>{title}</h2>
+        <LocationBadge location={location} />
+      </div>
+
+      <div className="metric-grid two" style={{ marginTop: 14 }}>
+        <Metric label="Setup Quality" value={`${quality}/100`} />
+        <Metric label="Risk State" value={riskState} />
+      </div>
+
+      <div className="metric" style={{ marginTop: 12 }}>
+        <div className="label">Execution note</div>
+        <div className="value">{note}</div>
+      </div>
+    </div>
+  );
+}
+
+function LocationBadge({ location }: { location: ExecutionLocation }) {
+  const cls =
+    location === 'active'
+      ? 'bullish'
+      : location === 'early'
+      ? 'neutral'
+      : location === 'late'
+      ? 'warn'
+      : 'bearish';
+
+  return <span className={`badge ${cls}`}>{location}</span>;
+}
+
+function ChartLabel({
+  x,
+  y,
+  text,
+  color,
+}: {
+  x: number;
+  y: number;
+  text: string;
+  color: string;
+}) {
+  return (
+    <text x={x} y={y} fontSize="11" fill={color} fontWeight="700">
+      {text}
+    </text>
   );
 }
 
