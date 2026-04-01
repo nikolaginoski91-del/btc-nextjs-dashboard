@@ -1,39 +1,145 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { Candle, Timeframe } from '@/lib/types';
+import { NextResponse } from "next/server";
 
-const TF_MAP: Record<Timeframe, string> = { '15m': '15m', '1h': '1h', '4h': '4h', '1d': '1d' };
+type Candle = {
+  time: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+};
 
-async function fetchJson(url: string) {
-  const res = await fetch(url, { cache: 'no-store', next: { revalidate: 0 } });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
+const TF_TO_SECONDS: Record<string, number> = {
+  "15m": 900,
+  "1h": 3600,
+  "4h": 14400,
+  "1d": 86400,
+};
+
+function json(data: unknown, status = 200) {
+  return NextResponse.json(data, { status });
 }
 
-async function fetchBinance(tf: string): Promise<Candle[]> {
-  const raw = await fetchJson(`https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=${tf}&limit=200`);
-  return raw.map((k: string[]) => ({
-    time: Number(k[0]), open: Number(k[1]), high: Number(k[2]), low: Number(k[3]), close: Number(k[4]), volume: Number(k[5])
-  }));
+async function fetchCoinbaseCandles(tf: string): Promise<Candle[]> {
+  const granularity = TF_TO_SECONDS[tf] ?? 14400;
+
+  const end = new Date();
+  const start = new Date(end.getTime() - granularity * 200 * 1000);
+
+  const url =
+    `https://api.exchange.coinbase.com/products/BTC-USD/candles` +
+    `?granularity=${granularity}` +
+    `&start=${start.toISOString()}` +
+    `&end=${end.toISOString()}`;
+
+  const res = await fetch(url, {
+    headers: {
+      Accept: "application/json",
+      "User-Agent": "btc-dashboard",
+    },
+    cache: "no-store",
+  });
+
+  if (!res.ok) {
+    throw new Error(`Coinbase HTTP ${res.status}`);
+  }
+
+  const raw = await res.json();
+
+  if (!Array.isArray(raw) || !raw.length) {
+    throw new Error("Coinbase returned no candles");
+  }
+
+  const candles: Candle[] = raw
+    .map((row: number[]) => ({
+      time: row[0] * 1000,
+      low: Number(row[1]),
+      high: Number(row[2]),
+      open: Number(row[3]),
+      close: Number(row[4]),
+      volume: Number(row[5]),
+    }))
+    .sort((a, b) => a.time - b.time);
+
+  return candles;
 }
 
-async function fetchCoinGeckoDaily(): Promise<Candle[]> {
-  const raw = await fetchJson('https://api.coingecko.com/api/v3/coins/bitcoin/ohlc?vs_currency=usd&days=30');
-  return raw.map((k: number[]) => ({ time: k[0], open: k[1], high: k[2], low: k[3], close: k[4], volume: 0 }));
+async function fetchKrakenCandles(tf: string): Promise<Candle[]> {
+  const intervalMap: Record<string, number> = {
+    "15m": 15,
+    "1h": 60,
+    "4h": 240,
+    "1d": 1440,
+  };
+
+  const interval = intervalMap[tf] ?? 240;
+  const url = `https://api.kraken.com/0/public/OHLC?pair=XBTUSD&interval=${interval}`;
+
+  const res = await fetch(url, {
+    headers: {
+      Accept: "application/json",
+      "User-Agent": "btc-dashboard",
+    },
+    cache: "no-store",
+  });
+
+  if (!res.ok) {
+    throw new Error(`Kraken HTTP ${res.status}`);
+  }
+
+  const raw = await res.json();
+
+  if (!raw?.result) {
+    throw new Error("Kraken returned invalid data");
+  }
+
+  const key = Object.keys(raw.result).find((k) => k !== "last");
+  if (!key || !Array.isArray(raw.result[key])) {
+    throw new Error("Kraken returned no candles");
+  }
+
+  const candles: Candle[] = raw.result[key]
+    .map((row: string[]) => ({
+      time: Number(row[0]) * 1000,
+      open: Number(row[1]),
+      high: Number(row[2]),
+      low: Number(row[3]),
+      close: Number(row[4]),
+      volume: Number(row[6]),
+    }))
+    .sort((a: Candle, b: Candle) => a.time - b.time);
+
+  return candles;
 }
 
-export async function GET(req: NextRequest) {
-  const tfParam = (req.nextUrl.searchParams.get('tf') || '4h') as Timeframe;
-  const tf = TF_MAP[tfParam] || '4h';
+export async function GET(req: Request) {
+  const { searchParams } = new URL(req.url);
+  const tf = searchParams.get("tf") || "4h";
+
   try {
-    const candles = await fetchBinance(tf);
-    return NextResponse.json({ source: 'binance', candles });
-  } catch (error) {
-    if (tf === '1d') {
-      try {
-        const candles = await fetchCoinGeckoDaily();
-        return NextResponse.json({ source: 'coingecko', candles });
-      } catch {}
+    const candles = await fetchCoinbaseCandles(tf);
+    return json({
+      source: "coinbase",
+      candles,
+    });
+  } catch (coinbaseError) {
+    try {
+      const candles = await fetchKrakenCandles(tf);
+      return json({
+        source: "kraken",
+        candles,
+      });
+    } catch (krakenError) {
+      return json(
+        {
+          error: "All BTC sources failed",
+          details: {
+            coinbase: coinbaseError instanceof Error ? coinbaseError.message : String(coinbaseError),
+            kraken: krakenError instanceof Error ? krakenError.message : String(krakenError),
+          },
+        },
+        500
+      );
     }
-    return NextResponse.json({ error: error instanceof Error ? error.message : 'Unknown btc route error' }, { status: 502 });
   }
 }
