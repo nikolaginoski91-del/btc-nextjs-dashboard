@@ -1,10 +1,27 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Activity, CalendarDays, RefreshCw, ShieldAlert, TrendingDown, TrendingUp, Wifi, WifiOff } from 'lucide-react';
-import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import {
+  Activity,
+  CalendarDays,
+  RefreshCw,
+  ShieldAlert,
+  TrendingDown,
+  TrendingUp,
+  Wifi,
+  WifiOff,
+} from 'lucide-react';
 import { buildStateFromCandles, FALLBACK_CANDLES, fmt } from '@/lib/market';
 import { DashboardState, LiveMode, SignalCard, Timeframe } from '@/lib/types';
+
+type Candle = {
+  time: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+};
 
 export default function DashboardClient() {
   const [timeframe, setTimeframe] = useState<Timeframe>('4h');
@@ -12,30 +29,32 @@ export default function DashboardClient() {
   const [errorText, setErrorText] = useState('');
   const [activeSignal, setActiveSignal] = useState<SignalCard | null>(null);
   const [tab, setTab] = useState<'overview' | 'signals' | 'calendar'>('overview');
-  const [state, setState] = useState<DashboardState>(() => buildStateFromCandles(FALLBACK_CANDLES['4h'], new Date().toLocaleString()));
+  const [state, setState] = useState<DashboardState>(() =>
+    buildStateFromCandles(FALLBACK_CANDLES['4h'], new Date().toLocaleString())
+  );
 
-  const chartData = useMemo(() => state.candles.map((c) => ({
-    t: new Date(c.time).toLocaleDateString(undefined, timeframe === '15m' || timeframe === '1h'
-      ? { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }
-      : { month: 'short', day: 'numeric' }),
-    close: c.close,
-  })), [state.candles, timeframe]);
+  const visibleCandles = useMemo(() => state.candles.slice(-60), [state.candles]);
 
   async function loadLive() {
     setMode('loading');
     setErrorText('');
+
     try {
       const [btcRes, ctxRes] = await Promise.allSettled([
         fetch(`/api/btc?tf=${encodeURIComponent(timeframe)}`, { cache: 'no-store' }),
-        fetch('/api/context', { cache: 'no-store' })
+        fetch('/api/context', { cache: 'no-store' }),
       ]);
 
       if (btcRes.status !== 'fulfilled' || !btcRes.value.ok) {
-        throw new Error(`BTC route failed${btcRes.status === 'fulfilled' ? ` (${btcRes.value.status})` : ''}`);
+        throw new Error(
+          `BTC route failed${btcRes.status === 'fulfilled' ? ` (${btcRes.value.status})` : ''}`
+        );
       }
 
       const btcJson = await btcRes.value.json();
-      const ctxJson = ctxRes.status === 'fulfilled' && ctxRes.value.ok ? await ctxRes.value.json() : {};
+      const ctxJson =
+        ctxRes.status === 'fulfilled' && ctxRes.value.ok ? await ctxRes.value.json() : {};
+
       setState(buildStateFromCandles(btcJson.candles, new Date().toLocaleString(), ctxJson));
       setMode(btcJson.source === 'coingecko' ? 'live-coingecko' : 'live-binance');
     } catch (error) {
@@ -45,38 +64,72 @@ export default function DashboardClient() {
   }
 
   useEffect(() => {
-    const fallbackState = buildStateFromCandles(FALLBACK_CANDLES[timeframe], new Date().toLocaleString());
+    const fallbackState = buildStateFromCandles(
+      FALLBACK_CANDLES[timeframe],
+      new Date().toLocaleString()
+    );
     setState(fallbackState);
     setActiveSignal(fallbackState.signals[0] ?? null);
     void loadLive();
   }, [timeframe]);
 
-  const rrLong = ((state.longTargets[1] ?? state.longTargets[0]) - state.longEntry[1]) / Math.max(state.longEntry[1] - state.longStop, 1);
-  const rrShort = (state.shortEntry[0] - (state.shortTargets[1] ?? state.shortTargets[0])) / Math.max(state.shortStop - state.shortEntry[0], 1);
+  const rrLong =
+    ((state.longTargets[1] ?? state.longTargets[0]) - state.longEntry[1]) /
+    Math.max(state.longEntry[1] - state.longStop, 1);
+
+  const rrShort =
+    (state.shortEntry[0] - (state.shortTargets[1] ?? state.shortTargets[0])) /
+    Math.max(state.shortStop - state.shortEntry[0], 1);
 
   return (
     <div className="container">
       <div className="topbar">
         <div>
-          <div className="small" style={{ color: 'var(--neutral)', textTransform: 'uppercase', letterSpacing: '.22em' }}>Hosted build for Vercel / Netlify</div>
-          <h1 style={{ margin: '8px 0', fontSize: 'clamp(28px, 5vw, 52px)' }}>BTC/USDT Live Dashboard</h1>
-          <div className="muted">This version is built for a real web origin so live requests work on iPhone and laptop.</div>
+          <div
+            className="small"
+            style={{ color: 'var(--neutral)', textTransform: 'uppercase', letterSpacing: '.22em' }}
+          >
+            Hosted build for Vercel / Netlify
+          </div>
+          <h1 style={{ margin: '8px 0', fontSize: 'clamp(28px, 5vw, 52px)' }}>
+            BTC/USDT Live Dashboard
+          </h1>
+          <div className="muted">
+            This version is built for a real web origin so live requests work on iPhone and laptop.
+          </div>
         </div>
+
         <div className="row" style={{ justifyContent: 'flex-end' }}>
           <div className="switcher">
             {(['15m', '1h', '4h', '1d'] as Timeframe[]).map((tf) => (
-              <button key={tf} className={timeframe === tf ? 'active' : ''} onClick={() => setTimeframe(tf)}>{tf}</button>
+              <button
+                key={tf}
+                className={timeframe === tf ? 'active' : ''}
+                onClick={() => setTimeframe(tf)}
+              >
+                {tf}
+              </button>
             ))}
           </div>
-          <button className="primary-btn" onClick={loadLive}><RefreshCw size={16} style={{ marginRight: 6, verticalAlign: 'middle' }} /> Refresh Live Data</button>
+
+          <button className="primary-btn" onClick={loadLive}>
+            <RefreshCw size={16} style={{ marginRight: 6, verticalAlign: 'middle' }} />
+            Refresh Live Data
+          </button>
+
           <StatusBadge mode={mode} />
         </div>
       </div>
 
       <div className="hero">
         <div className="card">
-          <div className="space-between"><h2 style={{ margin: 0 }}>Live Price</h2><StatusDelta change={state.change24h} /></div>
+          <div className="space-between">
+            <h2 style={{ margin: 0 }}>Live Price</h2>
+            <StatusDelta change={state.change24h} />
+          </div>
+
           <div className="big-price">${fmt(state.price, 2)}</div>
+
           <div className="metric-grid four" style={{ marginTop: 16 }}>
             <Metric label="24H High" value={`$${fmt(state.high24h, 2)}`} />
             <Metric label="24H Low" value={`$${fmt(state.low24h, 2)}`} />
@@ -84,43 +137,61 @@ export default function DashboardClient() {
             <Metric label="Updated" value={state.updatedAt} />
           </div>
         </div>
+
         <div className="card">
-          <div className="space-between"><h2 style={{ margin: 0 }}>Bias</h2><span className={`badge ${state.bias}`}>{state.bias.toUpperCase()}</span></div>
+          <div className="space-between">
+            <h2 style={{ margin: 0 }}>Bias</h2>
+            <span className={`badge ${state.bias}`}>{state.bias.toUpperCase()}</span>
+          </div>
+
           <div className="metric-grid two" style={{ marginTop: 16 }}>
             <Metric label="Confidence" value={state.confidence} />
             <Metric label="Structure" value={state.structure} />
             <Metric label="Swing High" value={`$${fmt(state.swingHigh, 0)}`} />
             <Metric label="Swing Low" value={`$${fmt(state.swingLow, 0)}`} />
           </div>
-          <div className="metric" style={{ marginTop: 12 }}><div className="value">Bias flips if price invalidates current structure and retakes the other side of EMA50 with follow-through.</div></div>
+
+          <div className="metric" style={{ marginTop: 12 }}>
+            <div className="value">
+              Bias flips if price invalidates current structure and retakes the other side of EMA50
+              with follow-through.
+            </div>
+          </div>
         </div>
       </div>
 
       <div className="tabbar">
-        <button className={`primary-btn ${tab === 'overview' ? 'active' : ''}`} onClick={() => setTab('overview')}>Overview</button>
-        <button className={`primary-btn ${tab === 'signals' ? 'active' : ''}`} onClick={() => setTab('signals')}>Live Signals</button>
-        <button className={`primary-btn ${tab === 'calendar' ? 'active' : ''}`} onClick={() => setTab('calendar')}>April News</button>
+        <button
+          className={`primary-btn ${tab === 'overview' ? 'active' : ''}`}
+          onClick={() => setTab('overview')}
+        >
+          Overview
+        </button>
+        <button
+          className={`primary-btn ${tab === 'signals' ? 'active' : ''}`}
+          onClick={() => setTab('signals')}
+        >
+          Live Signals
+        </button>
+        <button
+          className={`primary-btn ${tab === 'calendar' ? 'active' : ''}`}
+          onClick={() => setTab('calendar')}
+        >
+          April News
+        </button>
       </div>
 
       {tab === 'overview' && (
         <>
           <div className="card section">
             <h2 style={{ marginTop: 0 }}>Chart</h2>
-            <div className="chart-box">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={chartData}>
-                  <CartesianGrid stroke="rgba(255,255,255,0.06)" vertical={false} />
-                  <XAxis dataKey="t" tick={{ fill: '#94a3b8', fontSize: 11 }} minTickGap={20} />
-                  <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} width={72} domain={['auto', 'auto']} />
-                  <Tooltip contentStyle={{ background: '#0f172a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 16 }} />
-                  <ReferenceLine y={state.supports[0]} stroke="rgba(25,195,125,.45)" strokeDasharray="4 4" />
-                  <ReferenceLine y={state.resistances[0]} stroke="rgba(255,93,93,.45)" strokeDasharray="4 4" />
-                  <ReferenceLine y={state.longEntry[0]} stroke="rgba(25,195,125,.35)" />
-                  <ReferenceLine y={state.shortEntry[0]} stroke="rgba(255,93,93,.35)" />
-                  <Line type="monotone" dataKey="close" stroke="#ffffff" dot={false} strokeWidth={2} />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
+            <CandlestickChart
+              candles={visibleCandles}
+              supports={state.supports}
+              resistances={state.resistances}
+              longEntry={state.longEntry}
+              shortEntry={state.shortEntry}
+            />
           </div>
 
           <div className="grid section" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))' }}>
@@ -132,8 +203,14 @@ export default function DashboardClient() {
                 <Metric label="EMA 50" value={`$${fmt(state.ema50, 0)}`} />
                 <Metric label="EMA 200" value={`$${fmt(state.ema200, 0)}`} />
               </div>
-              <div className="metric" style={{ marginTop: 12 }}><div className="value">MACD state: {state.macdState}. Volume profile is an approximation from candle data, not true exchange-level orderflow.</div></div>
+              <div className="metric" style={{ marginTop: 12 }}>
+                <div className="value">
+                  MACD state: {state.macdState}. Volume profile is an approximation from candle
+                  data, not true exchange-level orderflow.
+                </div>
+              </div>
             </div>
+
             <div className="card">
               <h2 style={{ marginTop: 0 }}>Correlation Context</h2>
               <div className="metric-grid three">
@@ -145,8 +222,24 @@ export default function DashboardClient() {
           </div>
 
           <div className="grid section" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))' }}>
-            <ScenarioCard title="Long Scenario" direction="bullish" entry={`${fmt(state.longEntry[0], 0)} - ${fmt(state.longEntry[1], 0)}`} stop={fmt(state.longStop, 0)} targets={state.longTargets.map((x) => fmt(x, 0))} rr={rrLong} invalidation={`4H close below ${fmt(state.longStop, 0)}`} />
-            <ScenarioCard title="Short Scenario" direction="bearish" entry={`${fmt(state.shortEntry[0], 0)} - ${fmt(state.shortEntry[1], 0)}`} stop={fmt(state.shortStop, 0)} targets={state.shortTargets.map((x) => fmt(x, 0))} rr={rrShort} invalidation={`4H close above ${fmt(state.shortStop, 0)}`} />
+            <ScenarioCard
+              title="Long Scenario"
+              direction="bullish"
+              entry={`${fmt(state.longEntry[0], 0)} - ${fmt(state.longEntry[1], 0)}`}
+              stop={fmt(state.longStop, 0)}
+              targets={state.longTargets.map((x) => fmt(x, 0))}
+              rr={rrLong}
+              invalidation={`4H close below ${fmt(state.longStop, 0)}`}
+            />
+            <ScenarioCard
+              title="Short Scenario"
+              direction="bearish"
+              entry={`${fmt(state.shortEntry[0], 0)} - ${fmt(state.shortEntry[1], 0)}`}
+              stop={fmt(state.shortStop, 0)}
+              targets={state.shortTargets.map((x) => fmt(x, 0))}
+              rr={rrShort}
+              invalidation={`4H close above ${fmt(state.shortStop, 0)}`}
+            />
           </div>
         </>
       )}
@@ -162,30 +255,45 @@ export default function DashboardClient() {
                     <strong>{signal.title}</strong>
                     <span className={`badge ${signal.direction}`}>{signal.direction}</span>
                   </div>
-                  <div className="muted" style={{ marginTop: 8 }}>{signal.trigger}</div>
+                  <div className="muted" style={{ marginTop: 8 }}>
+                    {signal.trigger}
+                  </div>
                 </button>
               ))}
             </div>
           </div>
+
           <div className="card">
             <h2 style={{ marginTop: 0 }}>Alert Detail</h2>
             {activeSignal ? (
               <div className="grid">
-                <div className="row"><Activity size={18} color="#7aa2ff" /><strong>{activeSignal.title}</strong></div>
+                <div className="row">
+                  <Activity size={18} color="#7aa2ff" />
+                  <strong>{activeSignal.title}</strong>
+                </div>
                 <Metric label="Trigger" value={activeSignal.trigger} />
                 <Metric label="Execution note" value={activeSignal.note} />
                 <Metric label="Invalidation" value={activeSignal.invalidation} />
                 <Metric label="Risk note" value={activeSignal.risk} />
               </div>
-            ) : <div className="muted">Choose a signal to inspect.</div>}
+            ) : (
+              <div className="muted">Choose a signal to inspect.</div>
+            )}
           </div>
         </div>
       )}
 
       {tab === 'calendar' && (
         <div className="card section">
-          <div className="row"><CalendarDays size={18} /><h2 style={{ margin: 0 }}>April News Calendar</h2></div>
-          <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', marginTop: 12 }}>
+          <div className="row">
+            <CalendarDays size={18} />
+            <h2 style={{ margin: 0 }}>April News Calendar</h2>
+          </div>
+
+          <div
+            className="grid"
+            style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', marginTop: 12 }}
+          >
             {[
               ['Apr 3', 'US Payrolls', 'High-impact macro release for rates and risk assets.'],
               ['Apr 10', 'US CPI', 'Inflation print with direct implications for DXY and crypto risk appetite.'],
@@ -195,9 +303,13 @@ export default function DashboardClient() {
               ['Weekly', 'Jobless Claims / Treasury auctions', 'Use as secondary volatility checkpoints.'],
             ].map(([date, title, desc]) => (
               <div key={title} className="metric">
-                <div className="label" style={{ color: 'var(--neutral)' }}>{date}</div>
+                <div className="label" style={{ color: 'var(--neutral)' }}>
+                  {date}
+                </div>
                 <div className="value">{title}</div>
-                <div className="muted" style={{ marginTop: 8 }}>{desc}</div>
+                <div className="muted" style={{ marginTop: 8 }}>
+                  {desc}
+                </div>
               </div>
             ))}
           </div>
@@ -206,17 +318,35 @@ export default function DashboardClient() {
 
       {errorText ? (
         <div className="alert section">
-          <div className="row"><ShieldAlert size={18} /> <strong>Live fetch issue</strong></div>
-          <div className="muted" style={{ marginTop: 8 }}>{errorText}. The dashboard stays usable with fallback data while the hosted API route is fixed.</div>
+          <div className="row">
+            <ShieldAlert size={18} /> <strong>Live fetch issue</strong>
+          </div>
+          <div className="muted" style={{ marginTop: 8 }}>
+            {errorText}. The dashboard stays usable with fallback data while the hosted API route
+            is fixed.
+          </div>
         </div>
       ) : null}
 
       <div className="card small">
         <div className="space-between">
           <div className="row">
-            {mode.startsWith('live') ? <Wifi size={16} color="#19c37d" /> : <WifiOff size={16} color="#9aa4b2" />}
+            {mode.startsWith('live') ? (
+              <Wifi size={16} color="#19c37d" />
+            ) : (
+              <WifiOff size={16} color="#9aa4b2" />
+            )}
             <span>
-              Status: {mode === 'fallback' ? 'Fallback snapshot' : mode === 'loading' ? 'Loading live...' : mode === 'live-binance' ? 'Live: Binance via hosted server route' : mode === 'live-coingecko' ? 'Live: CoinGecko via hosted server route' : 'Live fetch failed'}
+              Status:{' '}
+              {mode === 'fallback'
+                ? 'Fallback snapshot'
+                : mode === 'loading'
+                ? 'Loading live...'
+                : mode === 'live-binance'
+                ? 'Live: Binance via hosted server route'
+                : mode === 'live-coingecko'
+                ? 'Live: CoinGecko via hosted server route'
+                : 'Live fetch failed'}
             </span>
           </div>
           <span>Deployment target: Vercel or Netlify</span>
@@ -226,13 +356,249 @@ export default function DashboardClient() {
   );
 }
 
+function CandlestickChart({
+  candles,
+  supports = [],
+  resistances = [],
+  longEntry,
+  shortEntry,
+}: {
+  candles: Candle[];
+  supports?: number[];
+  resistances?: number[];
+  longEntry?: [number, number];
+  shortEntry?: [number, number];
+}) {
+  const width = 1000;
+  const height = 420;
+  const padLeft = 56;
+  const padRight = 28;
+  const padTop = 20;
+  const padBottom = 28;
+
+  if (!candles.length) {
+    return <div className="chart-box" style={{ display: 'grid', placeItems: 'center' }}>No chart data</div>;
+  }
+
+  const highs = candles.map((c) => c.high);
+  const lows = candles.map((c) => c.low);
+
+  const levelValues = [
+    ...highs,
+    ...lows,
+    ...supports,
+    ...resistances,
+    ...(longEntry ? [longEntry[0], longEntry[1]] : []),
+    ...(shortEntry ? [shortEntry[0], shortEntry[1]] : []),
+  ].filter((n) => Number.isFinite(n));
+
+  const max = Math.max(...levelValues);
+  const min = Math.min(...levelValues);
+  const range = Math.max(max - min, 1);
+
+  const plotW = width - padLeft - padRight;
+  const plotH = height - padTop - padBottom;
+  const stepX = plotW / candles.length;
+  const candleWidth = Math.max(4, stepX * 0.58);
+
+  const y = (price: number) => padTop + ((max - price) / range) * plotH;
+
+  const axisLevels = Array.from({ length: 5 }, (_, i) => min + (range * i) / 4);
+
+  return (
+    <div className="chart-box" style={{ overflowX: 'auto' }}>
+      <svg viewBox={`0 0 ${width} ${height}`} className="h-full w-full" preserveAspectRatio="none">
+        <rect x="0" y="0" width={width} height={height} fill="transparent" />
+
+        {axisLevels.map((price, i) => {
+          const yy = y(price);
+          return (
+            <g key={i}>
+              <line
+                x1={padLeft}
+                x2={width - padRight}
+                y1={yy}
+                y2={yy}
+                stroke="rgba(255,255,255,0.07)"
+                strokeWidth="1"
+              />
+              <text x="8" y={yy + 4} fontSize="11" fill="#94a3b8">
+                {price.toFixed(0)}
+              </text>
+            </g>
+          );
+        })}
+
+        {supports.map((price, i) => (
+          <LevelLine
+            key={`support-${i}-${price}`}
+            y={y(price)}
+            price={price}
+            color="#19c37d"
+            width={width}
+            padLeft={padLeft}
+            padRight={padRight}
+            dash="6 4"
+          />
+        ))}
+
+        {resistances.map((price, i) => (
+          <LevelLine
+            key={`resistance-${i}-${price}`}
+            y={y(price)}
+            price={price}
+            color="#ff5d5d"
+            width={width}
+            padLeft={padLeft}
+            padRight={padRight}
+            dash="6 4"
+          />
+        ))}
+
+        {longEntry ? (
+          <LevelLine
+            y={y(longEntry[0])}
+            price={longEntry[0]}
+            color="#22c55e"
+            width={width}
+            padLeft={padLeft}
+            padRight={padRight}
+            dash="2 3"
+          />
+        ) : null}
+
+        {shortEntry ? (
+          <LevelLine
+            y={y(shortEntry[0])}
+            price={shortEntry[0]}
+            color="#ef4444"
+            width={width}
+            padLeft={padLeft}
+            padRight={padRight}
+            dash="2 3"
+          />
+        ) : null}
+
+        {candles.map((candle, i) => {
+          const x = padLeft + i * stepX + stepX / 2;
+          const openY = y(candle.open);
+          const closeY = y(candle.close);
+          const highY = y(candle.high);
+          const lowY = y(candle.low);
+
+          const bullish = candle.close >= candle.open;
+          const color = bullish ? '#19c37d' : '#ff5d5d';
+          const bodyTop = Math.min(openY, closeY);
+          const bodyHeight = Math.max(Math.abs(closeY - openY), 2);
+
+          return (
+            <g key={candle.time}>
+              <line x1={x} x2={x} y1={highY} y2={lowY} stroke={color} strokeWidth="1.3" />
+              <rect
+                x={x - candleWidth / 2}
+                y={bodyTop}
+                width={candleWidth}
+                height={bodyHeight}
+                rx="1.4"
+                fill={color}
+                opacity="0.95"
+              />
+            </g>
+          );
+        })}
+
+        {candles
+          .filter((_, i) => i % Math.max(1, Math.floor(candles.length / 6)) === 0)
+          .map((candle) => {
+            const i = candles.findIndex((x) => x.time === candle.time);
+            const x = padLeft + i * stepX + stepX / 2;
+            const label = new Date(candle.time).toLocaleDateString(undefined, {
+              month: 'short',
+              day: 'numeric',
+            });
+
+            return (
+              <text
+                key={`label-${candle.time}`}
+                x={x}
+                y={height - 8}
+                textAnchor="middle"
+                fontSize="10"
+                fill="#94a3b8"
+              >
+                {label}
+              </text>
+            );
+          })}
+      </svg>
+    </div>
+  );
+}
+
+function LevelLine({
+  y,
+  price,
+  color,
+  width,
+  padLeft,
+  padRight,
+  dash,
+}: {
+  y: number;
+  price: number;
+  color: string;
+  width: number;
+  padLeft: number;
+  padRight: number;
+  dash: string;
+}) {
+  return (
+    <g>
+      <line
+        x1={padLeft}
+        x2={width - padRight}
+        y1={y}
+        y2={y}
+        stroke={color}
+        strokeDasharray={dash}
+        strokeWidth="1.15"
+        opacity="0.85"
+      />
+      <text
+        x={width - padRight - 4}
+        y={y - 4}
+        textAnchor="end"
+        fontSize="11"
+        fill={color}
+      >
+        {price.toFixed(0)}
+      </text>
+    </g>
+  );
+}
+
 function Metric({ label, value }: { label: string; value: string }) {
-  return <div className="metric"><div className="label">{label}</div><div className="value">{value}</div></div>;
+  return (
+    <div className="metric">
+      <div className="label">{label}</div>
+      <div className="value">{value}</div>
+    </div>
+  );
 }
 
 function StatusDelta({ change }: { change: number }) {
   const positive = change >= 0;
-  return <span className={`badge ${positive ? 'bullish' : 'bearish'}`}>{positive ? <TrendingUp size={14} style={{ marginRight: 4 }} /> : <TrendingDown size={14} style={{ marginRight: 4 }} />}{fmt(change, 2)}%</span>;
+
+  return (
+    <span className={`badge ${positive ? 'bullish' : 'bearish'}`}>
+      {positive ? (
+        <TrendingUp size={14} style={{ marginRight: 4 }} />
+      ) : (
+        <TrendingDown size={14} style={{ marginRight: 4 }} />
+      )}
+      {fmt(change, 2)}%
+    </span>
+  );
 }
 
 function StatusBadge({ mode }: { mode: LiveMode }) {
@@ -243,17 +609,40 @@ function StatusBadge({ mode }: { mode: LiveMode }) {
   return <span className="badge">Fallback snapshot</span>;
 }
 
-function ScenarioCard({ title, direction, entry, stop, targets, rr, invalidation }: { title: string; direction: 'bullish' | 'bearish'; entry: string; stop: string; targets: string[]; rr: number; invalidation: string; }) {
+function ScenarioCard({
+  title,
+  direction,
+  entry,
+  stop,
+  targets,
+  rr,
+  invalidation,
+}: {
+  title: string;
+  direction: 'bullish' | 'bearish';
+  entry: string;
+  stop: string;
+  targets: string[];
+  rr: number;
+  invalidation: string;
+}) {
   return (
     <div className="card">
-      <div className="space-between"><h2 style={{ margin: 0 }}>{title}</h2><span className={`badge ${direction}`}>{direction}</span></div>
+      <div className="space-between">
+        <h2 style={{ margin: 0 }}>{title}</h2>
+        <span className={`badge ${direction}`}>{direction}</span>
+      </div>
+
       <div className="metric-grid two" style={{ marginTop: 16 }}>
         <Metric label="Entry" value={entry} />
         <Metric label="Stop" value={stop} />
         <Metric label="Targets" value={targets.join(' / ')} />
         <Metric label="R:R" value={Number.isFinite(rr) ? rr.toFixed(2) : '—'} />
       </div>
-      <div className="metric" style={{ marginTop: 12 }}><div className="value">Invalidation: {invalidation}</div></div>
+
+      <div className="metric" style={{ marginTop: 12 }}>
+        <div className="value">Invalidation: {invalidation}</div>
+      </div>
     </div>
   );
 }
