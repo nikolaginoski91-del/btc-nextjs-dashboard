@@ -39,8 +39,8 @@ export default function DashboardClient() {
   const [activeSignal, setActiveSignal] = useState<SignalCard | null>(null);
   const [tab, setTab] = useState<'overview' | 'signals' | 'calendar'>('overview');
   const [state, setState] = useState<DashboardState>(() =>
-    buildStateFromCandles(FALLBACK_CANDLES['4h'], new Date().toLocaleString())
-  );
+  buildStateFromCandles(FALLBACK_CANDLES['4h'], 'Loading...')
+);
 
   const visibleCandles = useMemo(() => state.candles.slice(-60), [state.candles]);
   const primarySignal = state.signals[0] ?? null;
@@ -80,15 +80,16 @@ export default function DashboardClient() {
     }
   }
 
-  useEffect(() => {
-    const fallbackState = buildStateFromCandles(
-      FALLBACK_CANDLES[timeframe],
-      new Date().toLocaleString()
-    );
-    setState(fallbackState);
-    setActiveSignal(fallbackState.signals[0] ?? null);
-    void loadLive();
-  }, [timeframe]);
+ useEffect(() => {
+  const fallbackState = buildStateFromCandles(
+    FALLBACK_CANDLES[timeframe],
+    new Date().toLocaleString()
+  );
+
+  setState(fallbackState);
+  setActiveSignal(fallbackState.signals[0] ?? null);
+  void loadLive();
+}, [timeframe]);
 
   const rrLong =
     ((state.longTargets[1] ?? state.longTargets[0]) - state.longEntry[1]) /
@@ -97,6 +98,31 @@ export default function DashboardClient() {
   const rrShort =
     (state.shortEntry[0] - (state.shortTargets[1] ?? state.shortTargets[0])) /
     Math.max(state.shortStop - state.shortEntry[0], 1);
+
+  const readinessScore = Math.max(
+    0,
+    Math.min(
+      100,
+      (state.confidence === 'high' ? 30 : state.confidence === 'medium' ? 20 : 10) +
+        (state.trendState === 'uptrend' || state.trendState === 'downtrend' ? 25 : 10) +
+        (primarySignal?.strength === 'high' ? 25 : primarySignal?.strength === 'medium' ? 15 : 5) +
+        (state.execution.longQuality > 70 || state.execution.shortQuality > 70 ? 20 : 10)
+    )
+  );
+
+  const tradeAction =
+    readinessScore > 70
+      ? state.bias === 'bullish'
+        ? 'LOOK FOR LONG'
+        : state.bias === 'bearish'
+        ? 'LOOK FOR SHORT'
+        : 'WAIT'
+      : readinessScore > 50
+      ? 'SETUP FORMING'
+      : 'WAIT';
+
+  const tradeEdge =
+    readinessScore > 75 ? 'STRONG' : readinessScore > 55 ? 'MEDIUM' : 'WEAK';
 
   return (
     <div className="container">
@@ -138,6 +164,39 @@ export default function DashboardClient() {
         </div>
       </div>
 
+      <div className="card section">
+        <div className="space-between">
+          <h2 style={{ margin: 0 }}>Trade Readiness</h2>
+          <span
+            className={`badge ${
+              tradeEdge === 'STRONG' ? 'bullish' : tradeEdge === 'MEDIUM' ? 'neutral' : 'warn'
+            }`}
+          >
+            {tradeEdge}
+          </span>
+        </div>
+
+        <div className="metric-grid four" style={{ marginTop: 16 }}>
+          <Metric label="Score" value={`${readinessScore}/100`} />
+          <Metric label="Action" value={tradeAction} />
+          <Metric label="Bias" value={state.bias} />
+          <Metric label="Trend" value={state.trendState} />
+        </div>
+
+        <div className="metric" style={{ marginTop: 12 }}>
+          <div className="label">Operator Read</div>
+          <div className="value">
+            {tradeAction === 'WAIT'
+              ? 'No strong edge right now. Best decision is patience.'
+              : tradeAction === 'SETUP FORMING'
+              ? 'Conditions are improving, but confirmation is still needed.'
+              : state.bias === 'bullish'
+              ? 'Focus on long setups with confirmation and pullbacks into value.'
+              : 'Focus on short setups with confirmation and rejection into resistance.'}
+          </div>
+        </div>
+      </div>
+
       <div className="hero">
         <div className="card">
           <div className="space-between">
@@ -151,7 +210,7 @@ export default function DashboardClient() {
             <Metric label="24H High" value={`$${fmt(state.high24h, 2)}`} />
             <Metric label="24H Low" value={`$${fmt(state.low24h, 2)}`} />
             <Metric label="24H Volume" value={fmt(state.volume24h, 0)} />
-            <Metric label="Updated" value={state.updatedAt} />
+            <Metric label="Updated" value={mode === 'loading' ? 'Loading...' : state.updatedAt} />
           </div>
         </div>
 
