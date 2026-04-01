@@ -91,23 +91,74 @@ export default function DashboardClient() {
   }, [timeframe]);
 
   const rrLong =
-    ((state.longTargets[1] ?? state.longTargets[0]) - state.longEntry[1]) /
-    Math.max(state.longEntry[1] - state.longStop, 1);
+  ((state.longTargets[1] ?? state.longTargets[0]) - state.longEntry[1]) /
+  Math.max(state.longEntry[1] - state.longStop, 1);
 
-  const rrShort =
-    (state.shortEntry[0] - (state.shortTargets[1] ?? state.shortTargets[0])) /
-    Math.max(state.shortStop - state.shortEntry[0], 1);
+const rrShort =
+  (state.shortEntry[0] - (state.shortTargets[1] ?? state.shortTargets[0])) /
+  Math.max(state.shortStop - state.shortEntry[0], 1);
 
-  const readinessScore = Math.max(
-    0,
-    Math.min(
-      100,
-      (state.confidence === 'high' ? 30 : state.confidence === 'medium' ? 20 : 10) +
-        (state.trendState === 'uptrend' || state.trendState === 'downtrend' ? 25 : 10) +
-        (primarySignal?.strength === 'high' ? 25 : primarySignal?.strength === 'medium' ? 15 : 5) +
-        (state.execution.longQuality > 70 || state.execution.shortQuality > 70 ? 20 : 10)
-    )
-  );
+let longEdge = 35;
+let shortEdge = 35;
+
+// Bias scoring
+if (state.bias === 'bullish') longEdge += 18;
+if (state.bias === 'bearish') shortEdge += 18;
+if (state.bias === 'neutral') {
+  longEdge += 6;
+  shortEdge += 6;
+}
+
+// Trend scoring
+if (state.trendState === 'bullish') longEdge += 15;
+if (state.trendState === 'bearish') shortEdge += 15;
+if (state.trendState === 'range') {
+  longEdge += 5;
+  shortEdge += 5;
+}
+
+// Confidence scoring
+if (state.confidence === 'high') {
+  longEdge += 12;
+  shortEdge += 12;
+} else if (state.confidence === 'medium') {
+  longEdge += 7;
+  shortEdge += 7;
+} else {
+  longEdge += 2;
+  shortEdge += 2;
+}
+
+// EMA scoring
+if ((state.structure ?? '').toLowerCase().includes('bull')) longEdge += 10;
+if ((state.structure ?? '').toLowerCase().includes('bear')) shortEdge += 10;
+
+// RSI scoring
+if ((state.bias ?? '').toLowerCase().includes('bull')) longEdge += 8;
+if ((state.bias ?? '').toLowerCase().includes('bear')) shortEdge += 8;
+
+// RR scoring
+if (rrLong >= 2) longEdge += 10;
+else if (rrLong >= 1.2) longEdge += 5;
+
+if (rrShort >= 2) shortEdge += 10;
+else if (rrShort >= 1.2) shortEdge += 5;
+
+// Clamp
+longEdge = Math.min(100, Math.max(0, Math.round(longEdge)));
+shortEdge = Math.min(100, Math.max(0, Math.round(shortEdge)));
+
+const dominantSide =
+  longEdge > shortEdge ? 'LONG' : shortEdge > longEdge ? 'SHORT' : 'NEUTRAL';
+
+const executionEdge =
+  dominantSide === 'LONG'
+    ? `Long ${longEdge}/100`
+    : dominantSide === 'SHORT'
+    ? `Short ${shortEdge}/100`
+    : `Neutral ${Math.max(longEdge, shortEdge)}/100`;
+
+    const readinessScore = Math.max(longEdge, shortEdge);
 
   const tradeAction =
     readinessScore > 70
