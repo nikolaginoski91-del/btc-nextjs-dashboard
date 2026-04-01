@@ -1,0 +1,259 @@
+'use client';
+
+import { useEffect, useMemo, useState } from 'react';
+import { Activity, CalendarDays, RefreshCw, ShieldAlert, TrendingDown, TrendingUp, Wifi, WifiOff } from 'lucide-react';
+import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { buildStateFromCandles, FALLBACK_CANDLES, fmt } from '@/lib/market';
+import { DashboardState, LiveMode, SignalCard, Timeframe } from '@/lib/types';
+
+export default function DashboardClient() {
+  const [timeframe, setTimeframe] = useState<Timeframe>('4h');
+  const [mode, setMode] = useState<LiveMode>('fallback');
+  const [errorText, setErrorText] = useState('');
+  const [activeSignal, setActiveSignal] = useState<SignalCard | null>(null);
+  const [tab, setTab] = useState<'overview' | 'signals' | 'calendar'>('overview');
+  const [state, setState] = useState<DashboardState>(() => buildStateFromCandles(FALLBACK_CANDLES['4h'], new Date().toLocaleString()));
+
+  const chartData = useMemo(() => state.candles.map((c) => ({
+    t: new Date(c.time).toLocaleDateString(undefined, timeframe === '15m' || timeframe === '1h'
+      ? { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }
+      : { month: 'short', day: 'numeric' }),
+    close: c.close,
+  })), [state.candles, timeframe]);
+
+  async function loadLive() {
+    setMode('loading');
+    setErrorText('');
+    try {
+      const [btcRes, ctxRes] = await Promise.allSettled([
+        fetch(`/api/btc?tf=${encodeURIComponent(timeframe)}`, { cache: 'no-store' }),
+        fetch('/api/context', { cache: 'no-store' })
+      ]);
+
+      if (btcRes.status !== 'fulfilled' || !btcRes.value.ok) {
+        throw new Error(`BTC route failed${btcRes.status === 'fulfilled' ? ` (${btcRes.value.status})` : ''}`);
+      }
+
+      const btcJson = await btcRes.value.json();
+      const ctxJson = ctxRes.status === 'fulfilled' && ctxRes.value.ok ? await ctxRes.value.json() : {};
+      setState(buildStateFromCandles(btcJson.candles, new Date().toLocaleString(), ctxJson));
+      setMode(btcJson.source === 'coingecko' ? 'live-coingecko' : 'live-binance');
+    } catch (error) {
+      setMode('failed');
+      setErrorText(error instanceof Error ? error.message : 'Unknown live fetch error');
+    }
+  }
+
+  useEffect(() => {
+    const fallbackState = buildStateFromCandles(FALLBACK_CANDLES[timeframe], new Date().toLocaleString());
+    setState(fallbackState);
+    setActiveSignal(fallbackState.signals[0] ?? null);
+    void loadLive();
+  }, [timeframe]);
+
+  const rrLong = ((state.longTargets[1] ?? state.longTargets[0]) - state.longEntry[1]) / Math.max(state.longEntry[1] - state.longStop, 1);
+  const rrShort = (state.shortEntry[0] - (state.shortTargets[1] ?? state.shortTargets[0])) / Math.max(state.shortStop - state.shortEntry[0], 1);
+
+  return (
+    <div className="container">
+      <div className="topbar">
+        <div>
+          <div className="small" style={{ color: 'var(--neutral)', textTransform: 'uppercase', letterSpacing: '.22em' }}>Hosted build for Vercel / Netlify</div>
+          <h1 style={{ margin: '8px 0', fontSize: 'clamp(28px, 5vw, 52px)' }}>BTC/USDT Live Dashboard</h1>
+          <div className="muted">This version is built for a real web origin so live requests work on iPhone and laptop.</div>
+        </div>
+        <div className="row" style={{ justifyContent: 'flex-end' }}>
+          <div className="switcher">
+            {(['15m', '1h', '4h', '1d'] as Timeframe[]).map((tf) => (
+              <button key={tf} className={timeframe === tf ? 'active' : ''} onClick={() => setTimeframe(tf)}>{tf}</button>
+            ))}
+          </div>
+          <button className="primary-btn" onClick={loadLive}><RefreshCw size={16} style={{ marginRight: 6, verticalAlign: 'middle' }} /> Refresh Live Data</button>
+          <StatusBadge mode={mode} />
+        </div>
+      </div>
+
+      <div className="hero">
+        <div className="card">
+          <div className="space-between"><h2 style={{ margin: 0 }}>Live Price</h2><StatusDelta change={state.change24h} /></div>
+          <div className="big-price">${fmt(state.price, 2)}</div>
+          <div className="metric-grid four" style={{ marginTop: 16 }}>
+            <Metric label="24H High" value={`$${fmt(state.high24h, 2)}`} />
+            <Metric label="24H Low" value={`$${fmt(state.low24h, 2)}`} />
+            <Metric label="24H Volume" value={fmt(state.volume24h, 0)} />
+            <Metric label="Updated" value={state.updatedAt} />
+          </div>
+        </div>
+        <div className="card">
+          <div className="space-between"><h2 style={{ margin: 0 }}>Bias</h2><span className={`badge ${state.bias}`}>{state.bias.toUpperCase()}</span></div>
+          <div className="metric-grid two" style={{ marginTop: 16 }}>
+            <Metric label="Confidence" value={state.confidence} />
+            <Metric label="Structure" value={state.structure} />
+            <Metric label="Swing High" value={`$${fmt(state.swingHigh, 0)}`} />
+            <Metric label="Swing Low" value={`$${fmt(state.swingLow, 0)}`} />
+          </div>
+          <div className="metric" style={{ marginTop: 12 }}><div className="value">Bias flips if price invalidates current structure and retakes the other side of EMA50 with follow-through.</div></div>
+        </div>
+      </div>
+
+      <div className="tabbar">
+        <button className={`primary-btn ${tab === 'overview' ? 'active' : ''}`} onClick={() => setTab('overview')}>Overview</button>
+        <button className={`primary-btn ${tab === 'signals' ? 'active' : ''}`} onClick={() => setTab('signals')}>Live Signals</button>
+        <button className={`primary-btn ${tab === 'calendar' ? 'active' : ''}`} onClick={() => setTab('calendar')}>April News</button>
+      </div>
+
+      {tab === 'overview' && (
+        <>
+          <div className="card section">
+            <h2 style={{ marginTop: 0 }}>Chart</h2>
+            <div className="chart-box">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={chartData}>
+                  <CartesianGrid stroke="rgba(255,255,255,0.06)" vertical={false} />
+                  <XAxis dataKey="t" tick={{ fill: '#94a3b8', fontSize: 11 }} minTickGap={20} />
+                  <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} width={72} domain={['auto', 'auto']} />
+                  <Tooltip contentStyle={{ background: '#0f172a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 16 }} />
+                  <ReferenceLine y={state.supports[0]} stroke="rgba(25,195,125,.45)" strokeDasharray="4 4" />
+                  <ReferenceLine y={state.resistances[0]} stroke="rgba(255,93,93,.45)" strokeDasharray="4 4" />
+                  <ReferenceLine y={state.longEntry[0]} stroke="rgba(25,195,125,.35)" />
+                  <ReferenceLine y={state.shortEntry[0]} stroke="rgba(255,93,93,.35)" />
+                  <Line type="monotone" dataKey="close" stroke="#ffffff" dot={false} strokeWidth={2} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          <div className="grid section" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))' }}>
+            <div className="card">
+              <h2 style={{ marginTop: 0 }}>Indicators</h2>
+              <div className="metric-grid four">
+                <Metric label="RSI" value={fmt(state.rsi, 1)} />
+                <Metric label="EMA 21" value={`$${fmt(state.ema21, 0)}`} />
+                <Metric label="EMA 50" value={`$${fmt(state.ema50, 0)}`} />
+                <Metric label="EMA 200" value={`$${fmt(state.ema200, 0)}`} />
+              </div>
+              <div className="metric" style={{ marginTop: 12 }}><div className="value">MACD state: {state.macdState}. Volume profile is an approximation from candle data, not true exchange-level orderflow.</div></div>
+            </div>
+            <div className="card">
+              <h2 style={{ marginTop: 0 }}>Correlation Context</h2>
+              <div className="metric-grid three">
+                <Metric label="DXY" value={state.dxy} />
+                <Metric label="SPY" value={state.spy} />
+                <Metric label="ETH/BTC" value={state.ethbtc} />
+              </div>
+            </div>
+          </div>
+
+          <div className="grid section" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))' }}>
+            <ScenarioCard title="Long Scenario" direction="bullish" entry={`${fmt(state.longEntry[0], 0)} - ${fmt(state.longEntry[1], 0)}`} stop={fmt(state.longStop, 0)} targets={state.longTargets.map((x) => fmt(x, 0))} rr={rrLong} invalidation={`4H close below ${fmt(state.longStop, 0)}`} />
+            <ScenarioCard title="Short Scenario" direction="bearish" entry={`${fmt(state.shortEntry[0], 0)} - ${fmt(state.shortEntry[1], 0)}`} stop={fmt(state.shortStop, 0)} targets={state.shortTargets.map((x) => fmt(x, 0))} rr={rrShort} invalidation={`4H close above ${fmt(state.shortStop, 0)}`} />
+          </div>
+        </>
+      )}
+
+      {tab === 'signals' && (
+        <div className="grid section" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))' }}>
+          <div className="card">
+            <h2 style={{ marginTop: 0 }}>Clickable Signal Alerts</h2>
+            <div className="grid">
+              {state.signals.map((signal) => (
+                <button key={signal.title} className="ghost-btn" onClick={() => setActiveSignal(signal)}>
+                  <div className="space-between">
+                    <strong>{signal.title}</strong>
+                    <span className={`badge ${signal.direction}`}>{signal.direction}</span>
+                  </div>
+                  <div className="muted" style={{ marginTop: 8 }}>{signal.trigger}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="card">
+            <h2 style={{ marginTop: 0 }}>Alert Detail</h2>
+            {activeSignal ? (
+              <div className="grid">
+                <div className="row"><Activity size={18} color="#7aa2ff" /><strong>{activeSignal.title}</strong></div>
+                <Metric label="Trigger" value={activeSignal.trigger} />
+                <Metric label="Execution note" value={activeSignal.note} />
+                <Metric label="Invalidation" value={activeSignal.invalidation} />
+                <Metric label="Risk note" value={activeSignal.risk} />
+              </div>
+            ) : <div className="muted">Choose a signal to inspect.</div>}
+          </div>
+        </div>
+      )}
+
+      {tab === 'calendar' && (
+        <div className="card section">
+          <div className="row"><CalendarDays size={18} /><h2 style={{ margin: 0 }}>April News Calendar</h2></div>
+          <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', marginTop: 12 }}>
+            {[
+              ['Apr 3', 'US Payrolls', 'High-impact macro release for rates and risk assets.'],
+              ['Apr 10', 'US CPI', 'Inflation print with direct implications for DXY and crypto risk appetite.'],
+              ['Apr 14', 'US PPI', 'Producer inflation release, useful secondary macro input.'],
+              ['Apr 27–29', 'Bitcoin Conference', 'Event-driven sentiment and headline risk for BTC.'],
+              ['Apr 28–29', 'FOMC Meeting', 'High-impact Fed window. Reduce leverage into the decision.'],
+              ['Weekly', 'Jobless Claims / Treasury auctions', 'Use as secondary volatility checkpoints.'],
+            ].map(([date, title, desc]) => (
+              <div key={title} className="metric">
+                <div className="label" style={{ color: 'var(--neutral)' }}>{date}</div>
+                <div className="value">{title}</div>
+                <div className="muted" style={{ marginTop: 8 }}>{desc}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {errorText ? (
+        <div className="alert section">
+          <div className="row"><ShieldAlert size={18} /> <strong>Live fetch issue</strong></div>
+          <div className="muted" style={{ marginTop: 8 }}>{errorText}. The dashboard stays usable with fallback data while the hosted API route is fixed.</div>
+        </div>
+      ) : null}
+
+      <div className="card small">
+        <div className="space-between">
+          <div className="row">
+            {mode.startsWith('live') ? <Wifi size={16} color="#19c37d" /> : <WifiOff size={16} color="#9aa4b2" />}
+            <span>
+              Status: {mode === 'fallback' ? 'Fallback snapshot' : mode === 'loading' ? 'Loading live...' : mode === 'live-binance' ? 'Live: Binance via hosted server route' : mode === 'live-coingecko' ? 'Live: CoinGecko via hosted server route' : 'Live fetch failed'}
+            </span>
+          </div>
+          <span>Deployment target: Vercel or Netlify</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: string }) {
+  return <div className="metric"><div className="label">{label}</div><div className="value">{value}</div></div>;
+}
+
+function StatusDelta({ change }: { change: number }) {
+  const positive = change >= 0;
+  return <span className={`badge ${positive ? 'bullish' : 'bearish'}`}>{positive ? <TrendingUp size={14} style={{ marginRight: 4 }} /> : <TrendingDown size={14} style={{ marginRight: 4 }} />}{fmt(change, 2)}%</span>;
+}
+
+function StatusBadge({ mode }: { mode: LiveMode }) {
+  if (mode === 'live-binance') return <span className="badge bullish">Live: Binance</span>;
+  if (mode === 'live-coingecko') return <span className="badge neutral">Live: CoinGecko</span>;
+  if (mode === 'loading') return <span className="badge warn">Loading live...</span>;
+  if (mode === 'failed') return <span className="badge bearish">Live fetch failed</span>;
+  return <span className="badge">Fallback snapshot</span>;
+}
+
+function ScenarioCard({ title, direction, entry, stop, targets, rr, invalidation }: { title: string; direction: 'bullish' | 'bearish'; entry: string; stop: string; targets: string[]; rr: number; invalidation: string; }) {
+  return (
+    <div className="card">
+      <div className="space-between"><h2 style={{ margin: 0 }}>{title}</h2><span className={`badge ${direction}`}>{direction}</span></div>
+      <div className="metric-grid two" style={{ marginTop: 16 }}>
+        <Metric label="Entry" value={entry} />
+        <Metric label="Stop" value={stop} />
+        <Metric label="Targets" value={targets.join(' / ')} />
+        <Metric label="R:R" value={Number.isFinite(rr) ? rr.toFixed(2) : '—'} />
+      </div>
+      <div className="metric" style={{ marginTop: 12 }}><div className="value">Invalidation: {invalidation}</div></div>
+    </div>
+  );
+}
