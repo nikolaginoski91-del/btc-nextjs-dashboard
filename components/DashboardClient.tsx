@@ -39,8 +39,8 @@ export default function DashboardClient() {
   const [activeSignal, setActiveSignal] = useState<SignalCard | null>(null);
   const [tab, setTab] = useState<'overview' | 'signals' | 'calendar'>('overview');
   const [state, setState] = useState<DashboardState>(() =>
-  buildStateFromCandles(FALLBACK_CANDLES['4h'], 'Loading...')
-);
+    buildStateFromCandles(FALLBACK_CANDLES['4h'], 'Loading...')
+  );
 
   const visibleCandles = useMemo(() => state.candles.slice(-60), [state.candles]);
   const primarySignal = state.signals[0] ?? null;
@@ -80,16 +80,15 @@ export default function DashboardClient() {
     }
   }
 
- useEffect(() => {
-  const fallbackState = buildStateFromCandles(
-    FALLBACK_CANDLES[timeframe],
-    new Date().toLocaleString()
-  );
-
-  setState(fallbackState);
-  setActiveSignal(fallbackState.signals[0] ?? null);
-  void loadLive();
-}, [timeframe]);
+  useEffect(() => {
+    const fallbackState = buildStateFromCandles(
+      FALLBACK_CANDLES[timeframe],
+      new Date().toLocaleString()
+    );
+    setState(fallbackState);
+    setActiveSignal(fallbackState.signals[0] ?? null);
+    void loadLive();
+  }, [timeframe]);
 
   const rrLong =
     ((state.longTargets[1] ?? state.longTargets[0]) - state.longEntry[1]) /
@@ -165,22 +164,107 @@ export default function DashboardClient() {
       </div>
 
       <div className="card section">
-        <div className="space-between">
+        <div className="space-between" style={{ alignItems: 'center', gap: 12 }}>
           <h2 style={{ margin: 0 }}>Trade Readiness</h2>
-          <span
-            className={`badge ${
-              tradeEdge === 'STRONG' ? 'bullish' : tradeEdge === 'MEDIUM' ? 'neutral' : 'warn'
-            }`}
+          <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+            <span
+              className={`badge ${
+                tradeAction === 'LOOK FOR LONG'
+                  ? 'bullish'
+                  : tradeAction === 'LOOK FOR SHORT'
+                  ? 'bearish'
+                  : tradeAction === 'SETUP FORMING'
+                  ? 'neutral'
+                  : 'warn'
+              }`}
+            >
+              {tradeAction}
+            </span>
+            <span
+              className={`badge ${
+                tradeEdge === 'STRONG' ? 'bullish' : tradeEdge === 'MEDIUM' ? 'neutral' : 'warn'
+              }`}
+            >
+              {tradeEdge}
+            </span>
+          </div>
+        </div>
+
+        <div
+          style={{
+            marginTop: 16,
+            border: '1px solid rgba(255,255,255,.08)',
+            background: 'rgba(255,255,255,.03)',
+            borderRadius: 16,
+            padding: 12,
+          }}
+        >
+          <div className="space-between" style={{ marginBottom: 10, gap: 12 }}>
+            <div className="small" style={{ color: 'var(--muted)', letterSpacing: '.14em' }}>
+              SCORE MOMENTUM
+            </div>
+            <div style={{ fontWeight: 800, fontSize: 18 }}>{readinessScore}/100</div>
+          </div>
+
+          <div
+            style={{
+              height: 12,
+              width: '100%',
+              borderRadius: 999,
+              background: 'rgba(255,255,255,.08)',
+              overflow: 'hidden',
+            }}
           >
-            {tradeEdge}
-          </span>
+            <div
+              style={{
+                height: '100%',
+                width: `${readinessScore}%`,
+                borderRadius: 999,
+                background:
+                  readinessScore >= 70
+                    ? 'linear-gradient(90deg, rgba(25,195,125,.8), rgba(134,239,172,.95))'
+                    : readinessScore >= 50
+                    ? 'linear-gradient(90deg, rgba(122,162,255,.8), rgba(186,208,255,.95))'
+                    : 'linear-gradient(90deg, rgba(245,185,66,.8), rgba(255,221,126,.95))',
+                boxShadow:
+                  readinessScore >= 70
+                    ? '0 0 18px rgba(25,195,125,.28)'
+                    : readinessScore >= 50
+                    ? '0 0 18px rgba(122,162,255,.25)'
+                    : '0 0 18px rgba(245,185,66,.22)',
+                transition: 'width .35s ease',
+              }}
+            />
+          </div>
+
+          <div
+            className="row"
+            style={{ marginTop: 10, justifyContent: 'space-between', color: 'var(--muted)', fontSize: 12 }}
+          >
+            <span>Weak</span>
+            <span>Building</span>
+            <span>Strong</span>
+          </div>
         </div>
 
         <div className="metric-grid four" style={{ marginTop: 16 }}>
-          <Metric label="Score" value={`${readinessScore}/100`} />
           <Metric label="Action" value={tradeAction} />
           <Metric label="Bias" value={state.bias} />
           <Metric label="Trend" value={state.trendState} />
+          <Metric label="Confidence" value={state.confidence} />
+        </div>
+
+        <div className="metric-grid three" style={{ marginTop: 12 }}>
+          <MiniMetric label="Signal Strength" value={primarySignal?.strength ?? 'low'} />
+          <MiniMetric
+            label="Execution Edge"
+            value={
+              state.execution.longQuality > state.execution.shortQuality
+                ? `Long ${state.execution.longQuality}/100`
+                : `Short ${state.execution.shortQuality}/100`
+            }
+          />
+          <MiniMetric label="Market Mode" value={state.structure} />
         </div>
 
         <div className="metric" style={{ marginTop: 12 }}>
