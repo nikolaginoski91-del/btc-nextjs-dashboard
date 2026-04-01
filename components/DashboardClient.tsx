@@ -177,6 +177,71 @@ export default function DashboardClient() {
         </div>
       </div>
 
+
+      <div
+        className="grid section"
+        style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}
+      >
+        <div className="card">
+          <h2 style={{ marginTop: 0 }}>Execution Summary</h2>
+          <div className="metric-grid two" style={{ marginTop: 16 }}>
+            <Metric label="Market Bias" value={state.bias.toUpperCase()} />
+            <Metric
+              label="Best Action"
+              value={
+                state.execution.longTone === 'good'
+                  ? 'Look for Long'
+                  : state.execution.shortTone === 'good'
+                  ? 'Look for Short'
+                  : 'Wait / No Clean Setup'
+              }
+            />
+            <Metric
+              label="Long Zone"
+              value={`${fmt(state.longEntry[0], 0)} - ${fmt(state.longEntry[1], 0)}`}
+            />
+            <Metric
+              label="Short Zone"
+              value={`${fmt(state.shortEntry[0], 0)} - ${fmt(state.shortEntry[1], 0)}`}
+            />
+            <Metric
+              label="Risk Mode"
+              value={
+                state.execution.longRiskState === 'high-risk' ||
+                state.execution.shortRiskState === 'high-risk'
+                  ? 'High Risk'
+                  : 'Controlled'
+              }
+            />
+            <Metric
+              label="Trade Type"
+              value={
+                primarySignal?.type === 'confirmed-long' ||
+                primarySignal?.type === 'confirmed-short'
+                  ? 'Confirmation Entry'
+                  : primarySignal?.type === 'aggressive-long' ||
+                    primarySignal?.type === 'aggressive-short'
+                  ? 'Aggressive Entry'
+                  : 'Patience / Wait'
+              }
+            />
+            <Metric label="Confidence" value={state.confidence} />
+            <Metric label="Trend State" value={state.trendState} />
+          </div>
+
+          <div className="metric" style={{ marginTop: 12 }}>
+            <div className="label">Operator Note</div>
+            <div className="value">
+              {state.bias === 'bullish'
+                ? 'Prefer longs on pullback and confirmation. Avoid chasing into resistance.'
+                : state.bias === 'bearish'
+                ? 'Prefer shorts on rejection and weakness. Avoid forcing longs into pressure.'
+                : 'Market is mixed. Best edge comes from patience and confirmation.'}
+            </div>
+          </div>
+        </div>
+      </div>
+
       {primarySignal ? (
         <div className="card section" style={{ padding: 18 }}>
           <div className="space-between" style={{ alignItems: 'flex-start', gap: 16 }}>
