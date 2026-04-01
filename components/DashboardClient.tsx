@@ -123,6 +123,32 @@ export default function DashboardClient() {
   const tradeEdge =
     readinessScore > 75 ? 'STRONG' : readinessScore > 55 ? 'MEDIUM' : 'WEAK';
 
+  const readinessTone =
+    readinessScore >= 70 ? 'bullish' : readinessScore >= 50 ? 'warn' : 'bearish';
+
+  const readinessBar =
+    readinessScore >= 70
+      ? 'linear-gradient(90deg, rgba(25,195,125,.88), rgba(134,239,172,.98))'
+      : readinessScore >= 50
+      ? 'linear-gradient(90deg, rgba(245,185,66,.88), rgba(255,221,126,.98))'
+      : 'linear-gradient(90deg, rgba(255,93,93,.88), rgba(252,165,165,.98))';
+
+  const readinessGlow =
+    readinessScore >= 70
+      ? '0 0 18px rgba(25,195,125,.28)'
+      : readinessScore >= 50
+      ? '0 0 18px rgba(245,185,66,.24)'
+      : '0 0 18px rgba(255,93,93,.24)';
+
+  const actionBadgeClass =
+    tradeAction === 'LOOK FOR LONG'
+      ? 'bullish'
+      : tradeAction === 'LOOK FOR SHORT'
+      ? 'bearish'
+      : tradeAction === 'SETUP FORMING'
+      ? 'neutral'
+      : 'warn';
+
   return (
     <div className="container">
       <div className="topbar">
@@ -168,22 +194,14 @@ export default function DashboardClient() {
           <h2 style={{ margin: 0 }}>Trade Readiness</h2>
           <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
             <span
-              className={`badge ${
-                tradeAction === 'LOOK FOR LONG'
-                  ? 'bullish'
-                  : tradeAction === 'LOOK FOR SHORT'
-                  ? 'bearish'
-                  : tradeAction === 'SETUP FORMING'
-                  ? 'neutral'
-                  : 'warn'
-              }`}
+              className={`badge ${actionBadgeClass}`}
+              style={{ fontSize: 13, fontWeight: 800, padding: '10px 14px', letterSpacing: '.05em' }}
             >
               {tradeAction}
             </span>
             <span
-              className={`badge ${
-                tradeEdge === 'STRONG' ? 'bullish' : tradeEdge === 'MEDIUM' ? 'neutral' : 'warn'
-              }`}
+              className={`badge ${readinessTone}`}
+              style={{ fontSize: 13, fontWeight: 800, padding: '10px 14px', letterSpacing: '.05em' }}
             >
               {tradeEdge}
             </span>
@@ -220,18 +238,8 @@ export default function DashboardClient() {
                 height: '100%',
                 width: `${readinessScore}%`,
                 borderRadius: 999,
-                background:
-                  readinessScore >= 70
-                    ? 'linear-gradient(90deg, rgba(25,195,125,.8), rgba(134,239,172,.95))'
-                    : readinessScore >= 50
-                    ? 'linear-gradient(90deg, rgba(122,162,255,.8), rgba(186,208,255,.95))'
-                    : 'linear-gradient(90deg, rgba(245,185,66,.8), rgba(255,221,126,.95))',
-                boxShadow:
-                  readinessScore >= 70
-                    ? '0 0 18px rgba(25,195,125,.28)'
-                    : readinessScore >= 50
-                    ? '0 0 18px rgba(122,162,255,.25)'
-                    : '0 0 18px rgba(245,185,66,.22)',
+                background: readinessBar,
+                boxShadow: readinessGlow,
                 transition: 'width .35s ease',
               }}
             />
@@ -241,9 +249,9 @@ export default function DashboardClient() {
             className="row"
             style={{ marginTop: 10, justifyContent: 'space-between', color: 'var(--muted)', fontSize: 12 }}
           >
-            <span>Weak</span>
-            <span>Building</span>
-            <span>Strong</span>
+            <span style={{ color: 'rgba(252,165,165,.95)' }}>Weak</span>
+            <span style={{ color: 'rgba(255,221,126,.95)' }}>Building</span>
+            <span style={{ color: 'rgba(134,239,172,.95)' }}>Strong</span>
           </div>
         </div>
 
@@ -267,9 +275,27 @@ export default function DashboardClient() {
           <MiniMetric label="Market Mode" value={state.structure} />
         </div>
 
-        <div className="metric" style={{ marginTop: 12 }}>
-          <div className="label">Operator Read</div>
-          <div className="value">
+        <div
+          className="metric"
+          style={{
+            marginTop: 12,
+            border: `1px solid ${
+              readinessScore >= 70
+                ? 'rgba(25,195,125,.24)'
+                : readinessScore >= 50
+                ? 'rgba(245,185,66,.24)'
+                : 'rgba(255,93,93,.22)'
+            }`,
+            background:
+              readinessScore >= 70
+                ? 'rgba(25,195,125,.08)'
+                : readinessScore >= 50
+                ? 'rgba(245,185,66,.08)'
+                : 'rgba(255,93,93,.07)',
+          }}
+        >
+          <div className="label" style={{ marginBottom: 8 }}>Operator Read</div>
+          <div className="value" style={{ fontSize: 16, lineHeight: 1.45 }}>
             {tradeAction === 'WAIT'
               ? 'No strong edge right now. Best decision is patience.'
               : tradeAction === 'SETUP FORMING'
