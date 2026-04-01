@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
   Activity,
   AlertTriangle,
@@ -60,7 +60,7 @@ export default function DashboardClient() {
 
       const nextState = buildStateFromCandles(btcJson.candles, new Date().toLocaleString(), ctxJson);
       setState(nextState);
-      setActiveSignal((prev) => prev ?? nextState.signals[0] ?? null);
+      setActiveSignal(nextState.signals[0] ?? null);
       setMode(btcJson.source === 'coingecko' ? 'live-coingecko' : 'live-binance');
     } catch (error) {
       setMode('failed');
@@ -169,13 +169,14 @@ export default function DashboardClient() {
         <div className="card section" style={{ padding: 18 }}>
           <div className="space-between" style={{ alignItems: 'flex-start', gap: 16 }}>
             <div>
-              <div className="small" style={{ color: 'var(--neutral)', textTransform: 'uppercase', letterSpacing: '.18em' }}>
+              <div
+                className="small"
+                style={{ color: 'var(--neutral)', textTransform: 'uppercase', letterSpacing: '.18em' }}
+              >
                 Primary live signal
               </div>
               <div style={{ fontSize: 24, fontWeight: 800, marginTop: 6 }}>{primarySignal.title}</div>
-              <div className="muted" style={{ marginTop: 8 }}>
-                {primarySignal.note}
-              </div>
+              <div className="muted" style={{ marginTop: 8 }}>{primarySignal.note}</div>
             </div>
 
             <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
@@ -380,13 +381,15 @@ export default function DashboardClient() {
                   <TradeExecutionBox
                     title="Trend State"
                     value={state.trendState}
-                    tone={state.trendState === 'uptrend' ? 'bullish' : state.trendState === 'downtrend' ? 'bearish' : 'neutral'}
+                    tone={
+                      state.trendState === 'uptrend'
+                        ? 'bullish'
+                        : state.trendState === 'downtrend'
+                        ? 'bearish'
+                        : 'neutral'
+                    }
                   />
-                  <TradeExecutionBox
-                    title="Bias"
-                    value={state.bias}
-                    tone={state.bias}
-                  />
+                  <TradeExecutionBox title="Bias" value={state.bias} tone={state.bias} />
                   <TradeExecutionBox
                     title="RSI Regime"
                     value={state.rsi >= 55 ? 'Bullish' : state.rsi <= 45 ? 'Bearish' : 'Neutral'}
@@ -438,13 +441,9 @@ export default function DashboardClient() {
               ['Weekly', 'Jobless Claims / Treasury auctions', 'Use as secondary volatility checkpoints.'],
             ].map(([date, title, desc]) => (
               <div key={title} className="metric">
-                <div className="label" style={{ color: 'var(--neutral)' }}>
-                  {date}
-                </div>
+                <div className="label" style={{ color: 'var(--neutral)' }}>{date}</div>
                 <div className="value">{title}</div>
-                <div className="muted" style={{ marginTop: 8 }}>
-                  {desc}
-                </div>
+                <div className="muted" style={{ marginTop: 8 }}>{desc}</div>
               </div>
             ))}
           </div>
@@ -457,8 +456,7 @@ export default function DashboardClient() {
             <ShieldAlert size={18} /> <strong>Live fetch issue</strong>
           </div>
           <div className="muted" style={{ marginTop: 8 }}>
-            {errorText}. The dashboard stays usable with fallback data while the hosted API route
-            is fixed.
+            {errorText}. The dashboard stays usable with fallback data while the hosted API route is fixed.
           </div>
         </div>
       ) : null}
@@ -537,8 +535,8 @@ function CandlestickChart({
     ...resistances,
     ...(longEntry ? [longEntry[0], longEntry[1]] : []),
     ...(shortEntry ? [shortEntry[0], shortEntry[1]] : []),
-    ...(longStop ? [longStop] : []),
-    ...(shortStop ? [shortStop] : []),
+    ...(typeof longStop === 'number' ? [longStop] : []),
+    ...(typeof shortStop === 'number' ? [shortStop] : []),
     ...longTargets,
     ...shortTargets,
   ].filter((n) => Number.isFinite(n));
@@ -790,7 +788,10 @@ function MiniMetric({ label, value }: { label: string; value: string }) {
         padding: '10px 12px',
       }}
     >
-      <div className="small" style={{ color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.12em' }}>
+      <div
+        className="small"
+        style={{ color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.12em' }}
+      >
         {label}
       </div>
       <div style={{ marginTop: 6, fontWeight: 700 }}>{value}</div>
@@ -830,7 +831,10 @@ function TradeExecutionBox({
         padding: 14,
       }}
     >
-      <div className="small" style={{ color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.12em' }}>
+      <div
+        className="small"
+        style={{ color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.12em' }}
+      >
         {title}
       </div>
       <div style={{ marginTop: 8, fontWeight: 800, fontSize: 17 }}>{value}</div>
@@ -862,7 +866,7 @@ function StatusBadge({ mode }: { mode: LiveMode }) {
 }
 
 function SignalTypeBadge({ type }: { type: SignalCard['type'] }) {
-  const map: Record<SignalCard['type'], { label: string; cls: string; icon: JSX.Element }> = {
+  const map: Record<SignalCard['type'], { label: string; cls: string; icon: ReactNode }> = {
     'confirmed-long': {
       label: 'Confirmed',
       cls: 'bullish',
@@ -901,6 +905,7 @@ function SignalTypeBadge({ type }: { type: SignalCard['type'] }) {
   };
 
   const item = map[type];
+
   return (
     <span className={`badge ${item.cls}`}>
       {item.icon}
