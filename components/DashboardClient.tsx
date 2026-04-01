@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   Activity,
+  AlertTriangle,
   CalendarDays,
   RefreshCw,
   ShieldAlert,
@@ -10,6 +11,7 @@ import {
   TrendingUp,
   Wifi,
   WifiOff,
+  Zap,
 } from 'lucide-react';
 import { buildStateFromCandles, FALLBACK_CANDLES, fmt } from '@/lib/market';
 import { DashboardState, LiveMode, SignalCard, Timeframe } from '@/lib/types';
@@ -34,6 +36,7 @@ export default function DashboardClient() {
   );
 
   const visibleCandles = useMemo(() => state.candles.slice(-60), [state.candles]);
+  const primarySignal = state.signals[0] ?? null;
 
   async function loadLive() {
     setMode('loading');
@@ -55,7 +58,9 @@ export default function DashboardClient() {
       const ctxJson =
         ctxRes.status === 'fulfilled' && ctxRes.value.ok ? await ctxRes.value.json() : {};
 
-      setState(buildStateFromCandles(btcJson.candles, new Date().toLocaleString(), ctxJson));
+      const nextState = buildStateFromCandles(btcJson.candles, new Date().toLocaleString(), ctxJson);
+      setState(nextState);
+      setActiveSignal((prev) => prev ?? nextState.signals[0] ?? null);
       setMode(btcJson.source === 'coingecko' ? 'live-coingecko' : 'live-binance');
     } catch (error) {
       setMode('failed');
@@ -147,8 +152,8 @@ export default function DashboardClient() {
           <div className="metric-grid two" style={{ marginTop: 16 }}>
             <Metric label="Confidence" value={state.confidence} />
             <Metric label="Structure" value={state.structure} />
-            <Metric label="Swing High" value={`$${fmt(state.swingHigh, 0)}`} />
-            <Metric label="Swing Low" value={`$${fmt(state.swingLow, 0)}`} />
+            <Metric label="Trend State" value={state.trendState} />
+            <Metric label="Bias Flip" value={`$${fmt(state.biasFlipLevel, 0)}`} />
           </div>
 
           <div className="metric" style={{ marginTop: 12 }}>
@@ -159,6 +164,35 @@ export default function DashboardClient() {
           </div>
         </div>
       </div>
+
+      {primarySignal ? (
+        <div className="card section" style={{ padding: 18 }}>
+          <div className="space-between" style={{ alignItems: 'flex-start', gap: 16 }}>
+            <div>
+              <div className="small" style={{ color: 'var(--neutral)', textTransform: 'uppercase', letterSpacing: '.18em' }}>
+                Primary live signal
+              </div>
+              <div style={{ fontSize: 24, fontWeight: 800, marginTop: 6 }}>{primarySignal.title}</div>
+              <div className="muted" style={{ marginTop: 8 }}>
+                {primarySignal.note}
+              </div>
+            </div>
+
+            <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+              <SignalTypeBadge type={primarySignal.type} />
+              <StrengthBadge strength={primarySignal.strength} />
+              <span className={`badge ${primarySignal.direction}`}>{primarySignal.direction}</span>
+            </div>
+          </div>
+
+          <div className="metric-grid four" style={{ marginTop: 16 }}>
+            <Metric label="Trigger" value={primarySignal.trigger} />
+            <Metric label="Trend State" value={state.trendState} />
+            <Metric label="Confidence" value={state.confidence} />
+            <Metric label="Risk" value={primarySignal.risk} />
+          </div>
+        </div>
+      ) : null}
 
       <div className="tabbar">
         <button
@@ -191,10 +225,17 @@ export default function DashboardClient() {
               resistances={state.resistances}
               longEntry={state.longEntry}
               shortEntry={state.shortEntry}
+              longStop={state.longStop}
+              shortStop={state.shortStop}
+              longTargets={state.longTargets}
+              shortTargets={state.shortTargets}
             />
           </div>
 
-          <div className="grid section" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))' }}>
+          <div
+            className="grid section"
+            style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))' }}
+          >
             <div className="card">
               <h2 style={{ marginTop: 0 }}>Indicators</h2>
               <div className="metric-grid four">
@@ -221,7 +262,10 @@ export default function DashboardClient() {
             </div>
           </div>
 
-          <div className="grid section" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))' }}>
+          <div
+            className="grid section"
+            style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))' }}
+          >
             <ScenarioCard
               title="Long Scenario"
               direction="bullish"
@@ -245,18 +289,52 @@ export default function DashboardClient() {
       )}
 
       {tab === 'signals' && (
-        <div className="grid section" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))' }}>
+        <div
+          className="grid section"
+          style={{ gridTemplateColumns: 'minmax(320px, 0.95fr) minmax(340px, 1.05fr)' }}
+        >
           <div className="card">
-            <h2 style={{ marginTop: 0 }}>Clickable Signal Alerts</h2>
-            <div className="grid">
-              {state.signals.map((signal) => (
-                <button key={signal.title} className="ghost-btn" onClick={() => setActiveSignal(signal)}>
-                  <div className="space-between">
-                    <strong>{signal.title}</strong>
-                    <span className={`badge ${signal.direction}`}>{signal.direction}</span>
+            <div className="space-between" style={{ alignItems: 'center' }}>
+              <h2 style={{ marginTop: 0, marginBottom: 0 }}>Pro Signal Board</h2>
+              <div className="row" style={{ gap: 8 }}>
+                <span className={`badge ${state.bias}`}>{state.bias}</span>
+                <span className="badge">{state.trendState}</span>
+              </div>
+            </div>
+
+            <div className="grid" style={{ marginTop: 14, gap: 12 }}>
+              {state.signals.map((signal, index) => (
+                <button
+                  key={`${signal.title}-${index}`}
+                  className="ghost-btn"
+                  onClick={() => setActiveSignal(signal)}
+                  style={{
+                    textAlign: 'left',
+                    border:
+                      activeSignal?.title === signal.title
+                        ? '1px solid rgba(122,162,255,.45)'
+                        : undefined,
+                  }}
+                >
+                  <div className="space-between" style={{ alignItems: 'flex-start', gap: 10 }}>
+                    <div>
+                      <div style={{ fontWeight: 800, fontSize: 16 }}>{signal.title}</div>
+                      <div className="muted" style={{ marginTop: 6 }}>{signal.trigger}</div>
+                    </div>
+
+                    <div className="row" style={{ gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                      <SignalTypeBadge type={signal.type} />
+                      <StrengthBadge strength={signal.strength} />
+                    </div>
                   </div>
-                  <div className="muted" style={{ marginTop: 8 }}>
-                    {signal.trigger}
+
+                  <div
+                    className="metric-grid three"
+                    style={{ marginTop: 12, gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }}
+                  >
+                    <MiniMetric label="Direction" value={signal.direction} />
+                    <MiniMetric label="Trend" value={state.trendState} />
+                    <MiniMetric label="Confidence" value={state.confidence} />
                   </div>
                 </button>
               ))}
@@ -264,17 +342,74 @@ export default function DashboardClient() {
           </div>
 
           <div className="card">
-            <h2 style={{ marginTop: 0 }}>Alert Detail</h2>
+            <h2 style={{ marginTop: 0 }}>Execution Detail</h2>
             {activeSignal ? (
-              <div className="grid">
-                <div className="row">
-                  <Activity size={18} color="#7aa2ff" />
-                  <strong>{activeSignal.title}</strong>
+              <div className="grid" style={{ gap: 12 }}>
+                <div className="space-between" style={{ alignItems: 'flex-start', gap: 12 }}>
+                  <div className="row" style={{ gap: 10, alignItems: 'center' }}>
+                    <Activity size={18} color="#7aa2ff" />
+                    <div>
+                      <div style={{ fontSize: 22, fontWeight: 800 }}>{activeSignal.title}</div>
+                      <div className="muted" style={{ marginTop: 4 }}>
+                        Type: {activeSignal.type} · Strength: {activeSignal.strength}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+                    <SignalTypeBadge type={activeSignal.type} />
+                    <StrengthBadge strength={activeSignal.strength} />
+                    <span className={`badge ${activeSignal.direction}`}>{activeSignal.direction}</span>
+                  </div>
                 </div>
-                <Metric label="Trigger" value={activeSignal.trigger} />
-                <Metric label="Execution note" value={activeSignal.note} />
-                <Metric label="Invalidation" value={activeSignal.invalidation} />
-                <Metric label="Risk note" value={activeSignal.risk} />
+
+                <div className="metric-grid two">
+                  <Metric label="Trigger" value={activeSignal.trigger} />
+                  <Metric label="Invalidation" value={activeSignal.invalidation} />
+                  <Metric label="Execution note" value={activeSignal.note} />
+                  <Metric label="Risk note" value={activeSignal.risk} />
+                </div>
+
+                <div
+                  className="grid"
+                  style={{
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                    gap: 12,
+                  }}
+                >
+                  <TradeExecutionBox
+                    title="Trend State"
+                    value={state.trendState}
+                    tone={state.trendState === 'uptrend' ? 'bullish' : state.trendState === 'downtrend' ? 'bearish' : 'neutral'}
+                  />
+                  <TradeExecutionBox
+                    title="Bias"
+                    value={state.bias}
+                    tone={state.bias}
+                  />
+                  <TradeExecutionBox
+                    title="RSI Regime"
+                    value={state.rsi >= 55 ? 'Bullish' : state.rsi <= 45 ? 'Bearish' : 'Neutral'}
+                    tone={state.rsi >= 55 ? 'bullish' : state.rsi <= 45 ? 'bearish' : 'neutral'}
+                  />
+                  <TradeExecutionBox
+                    title="EMA State"
+                    value={
+                      state.ema21 > state.ema50 && state.ema50 > state.ema200
+                        ? 'Bull stack'
+                        : state.ema21 < state.ema50 && state.ema50 < state.ema200
+                        ? 'Bear stack'
+                        : 'Mixed'
+                    }
+                    tone={
+                      state.ema21 > state.ema50 && state.ema50 > state.ema200
+                        ? 'bullish'
+                        : state.ema21 < state.ema50 && state.ema50 < state.ema200
+                        ? 'bearish'
+                        : 'neutral'
+                    }
+                  />
+                </div>
               </div>
             ) : (
               <div className="muted">Choose a signal to inspect.</div>
@@ -362,22 +497,34 @@ function CandlestickChart({
   resistances = [],
   longEntry,
   shortEntry,
+  longStop,
+  shortStop,
+  longTargets = [],
+  shortTargets = [],
 }: {
   candles: Candle[];
   supports?: number[];
   resistances?: number[];
   longEntry?: [number, number];
   shortEntry?: [number, number];
+  longStop?: number;
+  shortStop?: number;
+  longTargets?: number[];
+  shortTargets?: number[];
 }) {
   const width = 1000;
   const height = 420;
   const padLeft = 56;
-  const padRight = 28;
+  const padRight = 34;
   const padTop = 20;
   const padBottom = 28;
 
   if (!candles.length) {
-    return <div className="chart-box" style={{ display: 'grid', placeItems: 'center' }}>No chart data</div>;
+    return (
+      <div className="chart-box" style={{ display: 'grid', placeItems: 'center' }}>
+        No chart data
+      </div>
+    );
   }
 
   const highs = candles.map((c) => c.high);
@@ -390,6 +537,10 @@ function CandlestickChart({
     ...resistances,
     ...(longEntry ? [longEntry[0], longEntry[1]] : []),
     ...(shortEntry ? [shortEntry[0], shortEntry[1]] : []),
+    ...(longStop ? [longStop] : []),
+    ...(shortStop ? [shortStop] : []),
+    ...longTargets,
+    ...shortTargets,
   ].filter((n) => Number.isFinite(n));
 
   const max = Math.max(...levelValues);
@@ -402,7 +553,6 @@ function CandlestickChart({
   const candleWidth = Math.max(4, stepX * 0.58);
 
   const y = (price: number) => padTop + ((max - price) / range) * plotH;
-
   const axisLevels = Array.from({ length: 5 }, (_, i) => min + (range * i) / 4);
 
   return (
@@ -478,6 +628,56 @@ function CandlestickChart({
             dash="2 3"
           />
         ) : null}
+
+        {typeof longStop === 'number' ? (
+          <LevelLine
+            y={y(longStop)}
+            price={longStop}
+            color="#16a34a"
+            width={width}
+            padLeft={padLeft}
+            padRight={padRight}
+            dash="10 4"
+          />
+        ) : null}
+
+        {typeof shortStop === 'number' ? (
+          <LevelLine
+            y={y(shortStop)}
+            price={shortStop}
+            color="#dc2626"
+            width={width}
+            padLeft={padLeft}
+            padRight={padRight}
+            dash="10 4"
+          />
+        ) : null}
+
+        {longTargets.slice(0, 3).map((price, i) => (
+          <LevelLine
+            key={`lt-${i}-${price}`}
+            y={y(price)}
+            price={price}
+            color="#86efac"
+            width={width}
+            padLeft={padLeft}
+            padRight={padRight}
+            dash="3 6"
+          />
+        ))}
+
+        {shortTargets.slice(0, 3).map((price, i) => (
+          <LevelLine
+            key={`st-${i}-${price}`}
+            y={y(price)}
+            price={price}
+            color="#fca5a5"
+            width={width}
+            padLeft={padLeft}
+            padRight={padRight}
+            dash="3 6"
+          />
+        ))}
 
         {candles.map((candle, i) => {
           const x = padLeft + i * stepX + stepX / 2;
@@ -564,13 +764,7 @@ function LevelLine({
         strokeWidth="1.15"
         opacity="0.85"
       />
-      <text
-        x={width - padRight - 4}
-        y={y - 4}
-        textAnchor="end"
-        fontSize="11"
-        fill={color}
-      >
+      <text x={width - padRight - 4} y={y - 4} textAnchor="end" fontSize="11" fill={color}>
         {price.toFixed(0)}
       </text>
     </g>
@@ -582,6 +776,64 @@ function Metric({ label, value }: { label: string; value: string }) {
     <div className="metric">
       <div className="label">{label}</div>
       <div className="value">{value}</div>
+    </div>
+  );
+}
+
+function MiniMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div
+      style={{
+        border: '1px solid rgba(255,255,255,.08)',
+        background: 'rgba(255,255,255,.03)',
+        borderRadius: 14,
+        padding: '10px 12px',
+      }}
+    >
+      <div className="small" style={{ color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.12em' }}>
+        {label}
+      </div>
+      <div style={{ marginTop: 6, fontWeight: 700 }}>{value}</div>
+    </div>
+  );
+}
+
+function TradeExecutionBox({
+  title,
+  value,
+  tone,
+}: {
+  title: string;
+  value: string;
+  tone: 'bullish' | 'bearish' | 'neutral';
+}) {
+  const color =
+    tone === 'bullish'
+      ? 'rgba(25,195,125,.18)'
+      : tone === 'bearish'
+      ? 'rgba(255,93,93,.18)'
+      : 'rgba(122,162,255,.14)';
+
+  const border =
+    tone === 'bullish'
+      ? 'rgba(25,195,125,.28)'
+      : tone === 'bearish'
+      ? 'rgba(255,93,93,.28)'
+      : 'rgba(122,162,255,.25)';
+
+  return (
+    <div
+      style={{
+        background: color,
+        border: `1px solid ${border}`,
+        borderRadius: 16,
+        padding: 14,
+      }}
+    >
+      <div className="small" style={{ color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.12em' }}>
+        {title}
+      </div>
+      <div style={{ marginTop: 8, fontWeight: 800, fontSize: 17 }}>{value}</div>
     </div>
   );
 }
@@ -607,6 +859,59 @@ function StatusBadge({ mode }: { mode: LiveMode }) {
   if (mode === 'loading') return <span className="badge warn">Loading live...</span>;
   if (mode === 'failed') return <span className="badge bearish">Live fetch failed</span>;
   return <span className="badge">Fallback snapshot</span>;
+}
+
+function SignalTypeBadge({ type }: { type: SignalCard['type'] }) {
+  const map: Record<SignalCard['type'], { label: string; cls: string; icon: JSX.Element }> = {
+    'confirmed-long': {
+      label: 'Confirmed',
+      cls: 'bullish',
+      icon: <Zap size={13} style={{ marginRight: 4 }} />,
+    },
+    'aggressive-long': {
+      label: 'Aggressive',
+      cls: 'bullish',
+      icon: <TrendingUp size={13} style={{ marginRight: 4 }} />,
+    },
+    'confirmed-short': {
+      label: 'Confirmed',
+      cls: 'bearish',
+      icon: <Zap size={13} style={{ marginRight: 4 }} />,
+    },
+    'aggressive-short': {
+      label: 'Aggressive',
+      cls: 'bearish',
+      icon: <TrendingDown size={13} style={{ marginRight: 4 }} />,
+    },
+    'breakout-watch': {
+      label: 'Breakout Watch',
+      cls: 'neutral',
+      icon: <Activity size={13} style={{ marginRight: 4 }} />,
+    },
+    'liquidity-sweep-watch': {
+      label: 'Sweep Watch',
+      cls: 'neutral',
+      icon: <AlertTriangle size={13} style={{ marginRight: 4 }} />,
+    },
+    wait: {
+      label: 'Wait',
+      cls: 'warn',
+      icon: <AlertTriangle size={13} style={{ marginRight: 4 }} />,
+    },
+  };
+
+  const item = map[type];
+  return (
+    <span className={`badge ${item.cls}`}>
+      {item.icon}
+      {item.label}
+    </span>
+  );
+}
+
+function StrengthBadge({ strength }: { strength: SignalCard['strength'] }) {
+  const cls = strength === 'high' ? 'bullish' : strength === 'medium' ? 'neutral' : 'warn';
+  return <span className={`badge ${cls}`}>Strength: {strength}</span>;
 }
 
 function ScenarioCard({
