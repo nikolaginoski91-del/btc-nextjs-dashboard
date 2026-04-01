@@ -21,6 +21,9 @@ export type SignalType =
   | 'liquidity-sweep-watch'
   | 'wait';
 
+export type ExecutionTone = 'good' | 'neutral' | 'warning' | 'danger';
+export type ExecutionLocation = 'active' | 'early' | 'late' | 'invalid';
+
 export type SignalCard = {
   title: string;
   direction: Bias;
@@ -30,6 +33,19 @@ export type SignalCard = {
   note: string;
   invalidation: string;
   risk: string;
+};
+
+export type ExecutionState = {
+  longLocation: ExecutionLocation;
+  shortLocation: ExecutionLocation;
+  longQuality: number;
+  shortQuality: number;
+  longRiskState: string;
+  shortRiskState: string;
+  longExecutionNote: string;
+  shortExecutionNote: string;
+  longTone: ExecutionTone;
+  shortTone: ExecutionTone;
 };
 
 export type DashboardState = {
@@ -64,6 +80,8 @@ export type DashboardState = {
   shortEntry: [number, number];
   shortStop: number;
   shortTargets: number[];
+
+  execution: ExecutionState;
 
   dxy: string;
   spy: string;
