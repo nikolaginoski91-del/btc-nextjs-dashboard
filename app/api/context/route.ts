@@ -187,6 +187,12 @@ export async function GET() {
       longInvalidations: execution.longInvalidations,
       shortInvalidations: execution.shortInvalidations,
       avoidTradeReason: execution.avoidTradeReason,
+      longEntryQuality: execution.longEntryQuality,
+      shortEntryQuality: execution.shortEntryQuality,
+      longChaseWarning: execution.longChaseWarning,
+      shortChaseWarning: execution.shortChaseWarning,
+      bestEntrySide: execution.bestEntrySide,
+      entryComment: execution.entryComment,
     })
   } catch (error) {
     console.error('Context API error:', error)
@@ -221,6 +227,12 @@ export async function GET() {
         longInvalidations: ['Data unavailable'],
         shortInvalidations: ['Data unavailable'],
         avoidTradeReason: 'Avoid trading until context data returns.',
+        longEntryQuality: 'LATE',
+        shortEntryQuality: 'LATE',
+        longChaseWarning: 'Data unavailable',
+        shortChaseWarning: 'Data unavailable',
+        bestEntrySide: 'WAIT',
+        entryComment: 'Entry quality unavailable while context data is down.',
       },
       { status: 200 }
     )

@@ -138,6 +138,70 @@ export default function DashboardClient() {
     context.avoidTradeReason ?? 'Avoid trading without clean confirmation.'
   );
 
+  const longZoneMid = (state.longEntry[0] + state.longEntry[1]) / 2;
+  const shortZoneMid = (state.shortEntry[0] + state.shortEntry[1]) / 2;
+  const longTargetOne = state.longTargets[0] ?? state.longEntry[1];
+  const shortTargetOne = state.shortTargets[0] ?? state.shortEntry[0];
+
+  const longEntryDistancePct = Math.abs((state.price - longZoneMid) / Math.max(state.price, 1)) * 100;
+  const shortEntryDistancePct = Math.abs((state.price - shortZoneMid) / Math.max(state.price, 1)) * 100;
+
+  const longEntryQuality =
+    state.price < state.longEntry[0]
+      ? 'EARLY'
+      : state.price <= state.longEntry[1]
+      ? 'GOOD'
+      : state.price < longTargetOne * 0.992
+      ? 'LATE'
+      : 'CHASE';
+
+  const shortEntryQuality =
+    state.price > state.shortEntry[1]
+      ? 'EARLY'
+      : state.price >= state.shortEntry[0]
+      ? 'GOOD'
+      : state.price > shortTargetOne * 1.008
+      ? 'LATE'
+      : 'CHASE';
+
+  const longChaseWarning =
+    longEntryQuality === 'CHASE'
+      ? 'Price is already too far above the long value zone. Do not chase green candles here.'
+      : longEntryQuality === 'LATE'
+      ? 'Long is already moving away from value. Better entry usually comes on pullback.'
+      : longEntryQuality === 'EARLY'
+      ? 'Long value has not been tapped yet. Wait for reaction inside the zone.'
+      : 'Long is trading inside value. Entry quality is acceptable if confirmation appears.';
+
+  const shortChaseWarning =
+    shortEntryQuality === 'CHASE'
+      ? 'Price is already too far below the short value zone. Do not force late shorts here.'
+      : shortEntryQuality === 'LATE'
+      ? 'Short is already moving away from value. Better entry usually comes on rejection.'
+      : shortEntryQuality === 'EARLY'
+      ? 'Short value has not been tapped yet. Wait for reaction inside the zone.'
+      : 'Short is trading inside value. Entry quality is acceptable if rejection appears.';
+
+  const bestEntrySide =
+    dominantSide === 'LONG' && (longEntryQuality === 'GOOD' || longEntryQuality === 'EARLY')
+      ? 'LONG'
+      : dominantSide === 'SHORT' && (shortEntryQuality === 'GOOD' || shortEntryQuality === 'EARLY')
+      ? 'SHORT'
+      : 'WAIT';
+
+  const entryComment =
+    bestEntrySide === 'LONG'
+      ? longEntryQuality === 'GOOD'
+        ? 'Long side has both directional edge and acceptable entry location right now.'
+        : 'Long side is favored, but the cleaner trigger is still lower in the value zone.'
+      : bestEntrySide === 'SHORT'
+      ? shortEntryQuality === 'GOOD'
+        ? 'Short side has both directional edge and acceptable entry location right now.'
+        : 'Short side is favored, but the cleaner trigger is still higher in the value zone.'
+      : dominantSide === 'NEUTRAL'
+      ? 'Directional edge is mixed, so entry quality does not justify a trade yet.'
+      : 'Directional bias exists, but price location is too stretched or too late right now.';
+
   const tradeAction =
     readinessScore > 70
       ? state.bias === 'bullish'
@@ -624,6 +688,23 @@ export default function DashboardClient() {
           confirmationItems={dominantSide === 'SHORT' ? shortConfirmations : longConfirmations}
           invalidationItems={dominantSide === 'SHORT' ? shortInvalidations : longInvalidations}
           avoidTradeReason={avoidTradeReason}
+        />
+      </div>
+
+
+      <div
+        className="grid section"
+        style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))' }}
+      >
+        <EntryQualityCard
+          bestEntrySide={bestEntrySide}
+          entryComment={entryComment}
+          longEntryQuality={longEntryQuality}
+          shortEntryQuality={shortEntryQuality}
+          longChaseWarning={longChaseWarning}
+          shortChaseWarning={shortChaseWarning}
+          longEntryDistancePct={longEntryDistancePct}
+          shortEntryDistancePct={shortEntryDistancePct}
         />
       </div>
 
@@ -1474,6 +1555,67 @@ function ExecutionCardV2({
           ) : (
             'No strong reasons available yet.'
           )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+function EntryQualityCard({
+  bestEntrySide,
+  entryComment,
+  longEntryQuality,
+  shortEntryQuality,
+  longChaseWarning,
+  shortChaseWarning,
+  longEntryDistancePct,
+  shortEntryDistancePct,
+}: {
+  bestEntrySide: string;
+  entryComment: string;
+  longEntryQuality: string;
+  shortEntryQuality: string;
+  longChaseWarning: string;
+  shortChaseWarning: string;
+  longEntryDistancePct: number;
+  shortEntryDistancePct: number;
+}) {
+  const badgeClass =
+    bestEntrySide === 'LONG' ? 'bullish' : bestEntrySide === 'SHORT' ? 'bearish' : 'warn';
+
+  return (
+    <div className="card">
+      <div className="space-between" style={{ alignItems: 'center', gap: 12 }}>
+        <h2 style={{ margin: 0 }}>Entry Quality / Chase Risk</h2>
+        <span className={`badge ${badgeClass}`}>{bestEntrySide}</span>
+      </div>
+
+      <div className="metric-grid two" style={{ marginTop: 16 }}>
+        <Metric label="Long Entry" value={longEntryQuality} />
+        <Metric label="Short Entry" value={shortEntryQuality} />
+        <Metric label="Long Distance" value={`${longEntryDistancePct.toFixed(2)}%`} />
+        <Metric label="Short Distance" value={`${shortEntryDistancePct.toFixed(2)}%`} />
+      </div>
+
+      <div className="metric" style={{ marginTop: 12 }}>
+        <div className="label">Best current entry side</div>
+        <div className="value">{bestEntrySide}</div>
+      </div>
+
+      <div className="metric" style={{ marginTop: 12 }}>
+        <div className="label">Entry comment</div>
+        <div className="value">{entryComment}</div>
+      </div>
+
+      <div className="metric-grid two" style={{ marginTop: 12 }}>
+        <div className="metric">
+          <div className="label">Long chase warning</div>
+          <div className="value">{longChaseWarning}</div>
+        </div>
+        <div className="metric">
+          <div className="label">Short chase warning</div>
+          <div className="value">{shortChaseWarning}</div>
         </div>
       </div>
     </div>

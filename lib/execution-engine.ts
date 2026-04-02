@@ -24,10 +24,24 @@ export type ExecutionOutput = {
   longInvalidations: string[]
   shortInvalidations: string[]
   avoidTradeReason: string
+  longEntryQuality: 'EARLY' | 'GOOD' | 'LATE' | 'CHASE'
+  shortEntryQuality: 'EARLY' | 'GOOD' | 'LATE' | 'CHASE'
+  longChaseWarning: string
+  shortChaseWarning: string
+  bestEntrySide: 'LONG' | 'SHORT' | 'WAIT'
+  entryComment: string
 }
 
 function clamp(value: number, min = 0, max = 100) {
   return Math.max(min, Math.min(max, value))
+}
+
+
+function classifyEntryQuality(score: number) {
+  if (score >= 75) return 'GOOD' as const
+  if (score >= 60) return 'EARLY' as const
+  if (score >= 45) return 'LATE' as const
+  return 'CHASE' as const
 }
 
 export function calculateExecution(inputs: ExecutionInputs): ExecutionOutput {
@@ -234,6 +248,71 @@ export function calculateExecution(inputs: ExecutionInputs): ExecutionOutput {
       ? 'Bias exists, but readiness is still too weak for clean execution.'
       : 'Avoid chasing if price stretches too far from the best entry area.'
 
+  let longEntryBase = 50
+  let shortEntryBase = 50
+
+  if (preferredSide === 'LONG') longEntryBase += 18
+  if (preferredSide === 'SHORT') shortEntryBase += 18
+  if (price > ema20) longEntryBase += 10
+  else shortEntryBase += 10
+  if (price > ema50) longEntryBase += 8
+  else shortEntryBase += 8
+  if (macdHist > 0) longEntryBase += 8
+  else shortEntryBase += 8
+  if (rsi >= 52 && rsi <= 68) longEntryBase += 10
+  else if (rsi > 72) longEntryBase -= 14
+  if (rsi >= 32 && rsi <= 48) shortEntryBase += 10
+  else if (rsi < 28) shortEntryBase -= 14
+  if (!canTradeNow) {
+    longEntryBase -= 10
+    shortEntryBase -= 10
+  }
+  if (tradeReadiness < 60) {
+    longEntryBase -= 8
+    shortEntryBase -= 8
+  }
+
+  const longEntryQuality = classifyEntryQuality(clamp(Math.round(longEntryBase)))
+  const shortEntryQuality = classifyEntryQuality(clamp(Math.round(shortEntryBase)))
+
+  const longChaseWarning =
+    longEntryQuality === 'CHASE'
+      ? 'Long is stretched. Avoid chasing strength far from value.'
+      : longEntryQuality === 'LATE'
+      ? 'Long is getting extended. Better entry usually comes on pullback.'
+      : longEntryQuality === 'EARLY'
+      ? 'Long structure is improving, but confirmation is still developing.'
+      : 'Long entry quality is acceptable if price reacts cleanly.'
+
+  const shortChaseWarning =
+    shortEntryQuality === 'CHASE'
+      ? 'Short is stretched. Avoid forcing new shorts too close to target.'
+      : shortEntryQuality === 'LATE'
+      ? 'Short is already moving. Better entry usually comes on rejection.'
+      : shortEntryQuality === 'EARLY'
+      ? 'Short structure is improving, but confirmation is still developing.'
+      : 'Short entry quality is acceptable if price rejects cleanly.'
+
+  const bestEntrySide: 'LONG' | 'SHORT' | 'WAIT' =
+    preferredSide === 'LONG' && (longEntryQuality === 'GOOD' || longEntryQuality === 'EARLY')
+      ? 'LONG'
+      : preferredSide === 'SHORT' && (shortEntryQuality === 'GOOD' || shortEntryQuality === 'EARLY')
+      ? 'SHORT'
+      : 'WAIT'
+
+  const entryComment =
+    bestEntrySide === 'LONG'
+      ? longEntryQuality === 'GOOD'
+        ? 'Long is in a tradable area. Prefer confirmation over chasing.'
+        : 'Long bias exists, but the cleaner entry is still forming.'
+      : bestEntrySide === 'SHORT'
+      ? shortEntryQuality === 'GOOD'
+        ? 'Short is in a tradable area. Prefer rejection over forcing.'
+        : 'Short bias exists, but the cleaner entry is still forming.'
+      : preferredSide === 'NEUTRAL'
+      ? 'No side has a clean entry edge right now. Waiting is better than forcing.'
+      : 'Directional bias exists, but current entry quality is too weak or too stretched.'
+
   return {
     longExecution: longScore,
     shortExecution: shortScore,
@@ -248,5 +327,11 @@ export function calculateExecution(inputs: ExecutionInputs): ExecutionOutput {
     longInvalidations,
     shortInvalidations,
     avoidTradeReason,
+    longEntryQuality,
+    shortEntryQuality,
+    longChaseWarning,
+    shortChaseWarning,
+    bestEntrySide,
+    entryComment,
   }
 }
