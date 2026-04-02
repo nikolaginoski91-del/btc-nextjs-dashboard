@@ -18,33 +18,24 @@ async function safeJson(url: string) {
 }
 
 export async function GET() {
-  try {
-    const [btc24h, ethbtc] = await Promise.allSettled([
-      safeJson('https://api.binance.com/api/v3/ticker/24hr?symbol=BTCUSDT'),
-      safeJson('https://api.binance.com/api/v3/ticker/price?symbol=ETHBTC'),
-    ]);
+  const [btc24h, ethusd] = await Promise.allSettled([
+    safeJson('https://api.binance.com/api/v3/ticker/24hr?symbol=BTCUSDT'),
+    safeJson('https://api.binance.com/api/v3/ticker/price?symbol=ETHUSDT'),
+  ]);
 
-    const btcChange =
-      btc24h.status === 'fulfilled' && btc24h.value?.priceChangePercent
-        ? `${Number(btc24h.value.priceChangePercent).toFixed(2)}%`
-        : 'Unavailable';
+  const spy =
+    btc24h.status === 'fulfilled' && btc24h.value?.priceChangePercent
+      ? `${Number(btc24h.value.priceChangePercent).toFixed(2)}%`
+      : 'Unavailable';
 
-    const ethbtcValue =
-      ethbtc.status === 'fulfilled' && ethbtc.value?.price
-        ? Number(ethbtc.value.price).toFixed(5)
-        : 'Unavailable';
+  const ethbtc =
+    ethusd.status === 'fulfilled' && ethusd.value?.price
+      ? `$${Number(ethusd.value.price).toFixed(2)}`
+      : 'Unavailable';
 
-    return NextResponse.json({
-      dxy: 'Context disabled',
-      spy: btcChange,
-      ethbtc: ethbtcValue,
-    });
-  } catch (error) {
-    return NextResponse.json({
-      dxy: 'Unavailable',
-      spy: 'Unavailable',
-      ethbtc: 'Unavailable',
-      error: error instanceof Error ? error.message : 'Unknown error',
-    });
-  }
+  return NextResponse.json({
+    dxy: 'Context disabled',
+    spy,
+    ethbtc,
+  });
 }
