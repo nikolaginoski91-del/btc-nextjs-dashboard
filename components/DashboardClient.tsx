@@ -110,8 +110,8 @@ if (state.bias === 'neutral') {
 }
 
 // Trend scoring
-if (state.trendState === 'bullish') longEdge += 15;
-if (state.trendState === 'bearish') shortEdge += 15;
+if (state.trendState === 'uptrend') longEdge += 15;
+if (state.trendState === 'downtrend') shortEdge += 15;
 if (state.trendState === 'range') {
   longEdge += 5;
   shortEdge += 5;
