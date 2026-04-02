@@ -30,6 +30,13 @@ export type ExecutionOutput = {
   shortChaseWarning: string
   bestEntrySide: 'LONG' | 'SHORT' | 'WAIT'
   entryComment: string
+  longTriggerState: 'WATCH' | 'TRIGGERING' | 'CONFIRMED' | 'FAILED'
+  shortTriggerState: 'WATCH' | 'TRIGGERING' | 'CONFIRMED' | 'FAILED'
+  longConfirmationScore: number
+  shortConfirmationScore: number
+  bestActiveTrigger: 'LONG' | 'SHORT' | 'WAIT'
+  triggerComment: string
+  triggerFailureWarning: string
 }
 
 function clamp(value: number, min = 0, max = 100) {
@@ -313,6 +320,77 @@ export function calculateExecution(inputs: ExecutionInputs): ExecutionOutput {
       ? 'No side has a clean entry edge right now. Waiting is better than forcing.'
       : 'Directional bias exists, but current entry quality is too weak or too stretched.'
 
+
+  const longTriggerState: 'WATCH' | 'TRIGGERING' | 'CONFIRMED' | 'FAILED' =
+    preferredSide !== 'LONG'
+      ? 'WATCH'
+      : longEntryQuality === 'GOOD'
+      ? 'TRIGGERING'
+      : longEntryQuality === 'EARLY'
+      ? 'WATCH'
+      : longEntryQuality === 'LATE'
+      ? 'CONFIRMED'
+      : 'FAILED'
+
+  const shortTriggerState: 'WATCH' | 'TRIGGERING' | 'CONFIRMED' | 'FAILED' =
+    preferredSide !== 'SHORT'
+      ? 'WATCH'
+      : shortEntryQuality === 'GOOD'
+      ? 'TRIGGERING'
+      : shortEntryQuality === 'EARLY'
+      ? 'WATCH'
+      : shortEntryQuality === 'LATE'
+      ? 'CONFIRMED'
+      : 'FAILED'
+
+  const longConfirmationScore = clamp(
+    Math.round(
+      longScore * 0.45 +
+        tradeReadiness * 0.2 +
+        smartEdge * 0.15 +
+        (longEntryQuality === 'GOOD' ? 18 : longEntryQuality === 'LATE' ? 8 : 0)
+    )
+  )
+
+  const shortConfirmationScore = clamp(
+    Math.round(
+      shortScore * 0.45 +
+        tradeReadiness * 0.2 +
+        smartEdge * 0.15 +
+        (shortEntryQuality === 'GOOD' ? 18 : shortEntryQuality === 'LATE' ? 8 : 0)
+    )
+  )
+
+  const bestActiveTrigger: 'LONG' | 'SHORT' | 'WAIT' =
+    longTriggerState === 'CONFIRMED'
+      ? 'LONG'
+      : shortTriggerState === 'CONFIRMED'
+      ? 'SHORT'
+      : longTriggerState === 'TRIGGERING' && longConfirmationScore >= shortConfirmationScore
+      ? 'LONG'
+      : shortTriggerState === 'TRIGGERING' && shortConfirmationScore > longConfirmationScore
+      ? 'SHORT'
+      : 'WAIT'
+
+  const triggerComment =
+    bestActiveTrigger === 'LONG'
+      ? longTriggerState === 'CONFIRMED'
+        ? 'Long trigger quality is confirmed. Price is not just attractive, it is reacting.'
+        : 'Long trigger is forming. Wait for bullish follow-through, not just a touch.'
+      : bestActiveTrigger === 'SHORT'
+      ? shortTriggerState === 'CONFIRMED'
+        ? 'Short trigger quality is confirmed. Price is not just attractive, it is rejecting.'
+        : 'Short trigger is forming. Wait for bearish follow-through, not just a touch.'
+      : 'No trigger is confirmed right now. Watching is better than forcing execution.'
+
+  const triggerFailureWarning =
+    longTriggerState === 'FAILED'
+      ? 'Long trigger failed. Price is too stretched or momentum did not confirm.'
+      : shortTriggerState === 'FAILED'
+      ? 'Short trigger failed. Price is too stretched or momentum did not confirm.'
+      : 'Main risk is a weak touch without real confirmation. Avoid acting on a shallow reaction.'
+
+
   return {
     longExecution: longScore,
     shortExecution: shortScore,
@@ -333,5 +411,12 @@ export function calculateExecution(inputs: ExecutionInputs): ExecutionOutput {
     shortChaseWarning,
     bestEntrySide,
     entryComment,
+    longTriggerState,
+    shortTriggerState,
+    longConfirmationScore,
+    shortConfirmationScore,
+    bestActiveTrigger,
+    triggerComment,
+    triggerFailureWarning,
   }
 }

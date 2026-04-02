@@ -557,21 +557,12 @@ export function buildStateFromCandles(
     shortStop,
     shortTargets: finalShortTargets,
    
-        execution: {
-      longLocation: 'early',
-      shortLocation: 'early',
-      longQuality: 50,
-      shortQuality: 50,
-      longRiskState: 'Acceptable',
-      shortRiskState: 'Acceptable',
-      longExecutionNote: 'Waiting for cleaner long location.',
-      shortExecutionNote: 'Waiting for cleaner short location.',
-      longTone: 'neutral',
-      shortTone: 'neutral',
-    },
-    dxy: context?.dxy ?? 'Unavailable',
-    spy: context?.spy ?? 'Unavailable',
-    ethbtc: context?.ethbtc ?? 'Unavailable',
+        execution,
+context: context ?? {},
+
+dxy: context?.dxy ?? 'Unavailable',
+spy: context?.spy ?? 'Unavailable',
+ethbtc: context?.ethbtc ?? 'Unavailable',
 
     candles,
     signals,

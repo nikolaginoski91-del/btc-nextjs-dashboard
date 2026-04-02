@@ -48,6 +48,48 @@ export type ExecutionState = {
   shortTone: ExecutionTone;
 };
 
+export type DashboardContext = {
+  canTradeNow?: boolean;
+  tradeReadiness?: number;
+  smartEdge?: number;
+
+  longExecution?: number;
+  shortExecution?: number;
+  preferredSide?: 'LONG' | 'SHORT' | 'NEUTRAL';
+  executionComment?: string;
+
+  longReasons?: string[];
+  shortReasons?: string[];
+
+  whyLong?: string[];
+  whyShort?: string[];
+  longConfirmations?: string[];
+  shortConfirmations?: string[];
+  longInvalidations?: string[];
+  shortInvalidations?: string[];
+  avoidTradeReason?: string;
+
+  longEntryQuality?: 'EARLY' | 'GOOD' | 'LATE' | 'CHASE';
+  shortEntryQuality?: 'EARLY' | 'GOOD' | 'LATE' | 'CHASE';
+  longChaseWarning?: string;
+  shortChaseWarning?: string;
+  entryComment?: string;
+  bestEntrySide?: 'LONG' | 'SHORT' | 'WAIT';
+  entryDistancePct?: number;
+
+  longTriggerState?: 'WATCH' | 'TRIGGERING' | 'CONFIRMED' | 'FAILED';
+  shortTriggerState?: 'WATCH' | 'TRIGGERING' | 'CONFIRMED' | 'FAILED';
+  longConfirmationScore?: number;
+  shortConfirmationScore?: number;
+  bestActiveTrigger?: 'LONG' | 'SHORT' | 'WAIT';
+  triggerComment?: string;
+  triggerFailureWarning?: string;
+
+  dxy?: string;
+  spy?: string;
+  ethbtc?: string;
+};
+
 export type DashboardState = {
   price: number;
   change24h: number;
@@ -82,6 +124,7 @@ export type DashboardState = {
   shortTargets: number[];
 
   execution: ExecutionState;
+  context?: DashboardContext;
 
   dxy: string;
   spy: string;

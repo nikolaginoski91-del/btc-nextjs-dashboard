@@ -193,6 +193,13 @@ export async function GET() {
       shortChaseWarning: execution.shortChaseWarning,
       bestEntrySide: execution.bestEntrySide,
       entryComment: execution.entryComment,
+      longTriggerState: execution.longTriggerState,
+      shortTriggerState: execution.shortTriggerState,
+      longConfirmationScore: execution.longConfirmationScore,
+      shortConfirmationScore: execution.shortConfirmationScore,
+      bestActiveTrigger: execution.bestActiveTrigger,
+      triggerComment: execution.triggerComment,
+      triggerFailureWarning: execution.triggerFailureWarning,
     })
   } catch (error) {
     console.error('Context API error:', error)
@@ -233,6 +240,13 @@ export async function GET() {
         shortChaseWarning: 'Data unavailable',
         bestEntrySide: 'WAIT',
         entryComment: 'Entry quality unavailable while context data is down.',
+        longTriggerState: 'WATCH',
+        shortTriggerState: 'WATCH',
+        longConfirmationScore: 0,
+        shortConfirmationScore: 0,
+        bestActiveTrigger: 'WAIT',
+        triggerComment: 'Trigger quality unavailable while context data is down.',
+        triggerFailureWarning: 'Wait for context data before acting on any trigger.',
       },
       { status: 200 }
     )
