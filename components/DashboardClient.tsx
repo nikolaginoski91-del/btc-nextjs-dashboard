@@ -91,74 +91,34 @@ export default function DashboardClient() {
   }, [timeframe]);
 
   const rrLong =
-  ((state.longTargets[1] ?? state.longTargets[0]) - state.longEntry[1]) /
-  Math.max(state.longEntry[1] - state.longStop, 1);
+    ((state.longTargets[1] ?? state.longTargets[0]) - state.longEntry[1]) /
+    Math.max(state.longEntry[1] - state.longStop, 1);
 
-const rrShort =
-  (state.shortEntry[0] - (state.shortTargets[1] ?? state.shortTargets[0])) /
-  Math.max(state.shortStop - state.shortEntry[0], 1);
+  const rrShort =
+    (state.shortEntry[0] - (state.shortTargets[1] ?? state.shortTargets[0])) /
+    Math.max(state.shortStop - state.shortEntry[0], 1);
 
-let longEdge = 35;
-let shortEdge = 35;
+  const context = (state as any).context ?? {};
 
-// Bias scoring
-if (state.bias === 'bullish') longEdge += 18;
-if (state.bias === 'bearish') shortEdge += 18;
-if (state.bias === 'neutral') {
-  longEdge += 6;
-  shortEdge += 6;
-}
+  const longEdge = Number(context.longExecution ?? state.execution.longQuality ?? 35);
+  const shortEdge = Number(context.shortExecution ?? state.execution.shortQuality ?? 35);
+  const dominantSide = String(context.preferredSide ?? 'NEUTRAL');
+  const executionEdge =
+    dominantSide === 'LONG'
+      ? `Long ${longEdge}/100`
+      : dominantSide === 'SHORT'
+      ? `Short ${shortEdge}/100`
+      : `Neutral ${Math.max(longEdge, shortEdge)}/100`;
 
-// Trend scoring
-if (state.trendState === 'uptrend') longEdge += 15;
-if (state.trendState === 'downtrend') shortEdge += 15;
-if (state.trendState === 'range') {
-  longEdge += 5;
-  shortEdge += 5;
-}
+  const readinessScore = Number(context.tradeReadiness ?? Math.max(longEdge, shortEdge));
+  const smartEdgeScore = Number(context.smartEdge ?? 35);
+  const canTradeNowApi = Boolean(context.canTradeNow ?? false);
+  const executionComment = String(
+    context.executionComment ?? 'No execution comment available.'
+  );
 
-// Confidence scoring
-if (state.confidence === 'high') {
-  longEdge += 12;
-  shortEdge += 12;
-} else if (state.confidence === 'medium') {
-  longEdge += 7;
-  shortEdge += 7;
-} else {
-  longEdge += 2;
-  shortEdge += 2;
-}
-
-// EMA scoring
-if ((state.structure ?? '').toLowerCase().includes('bull')) longEdge += 10;
-if ((state.structure ?? '').toLowerCase().includes('bear')) shortEdge += 10;
-
-// RSI scoring
-if ((state.bias ?? '').toLowerCase().includes('bull')) longEdge += 8;
-if ((state.bias ?? '').toLowerCase().includes('bear')) shortEdge += 8;
-
-// RR scoring
-if (rrLong >= 2) longEdge += 10;
-else if (rrLong >= 1.2) longEdge += 5;
-
-if (rrShort >= 2) shortEdge += 10;
-else if (rrShort >= 1.2) shortEdge += 5;
-
-// Clamp
-longEdge = Math.min(100, Math.max(0, Math.round(longEdge)));
-shortEdge = Math.min(100, Math.max(0, Math.round(shortEdge)));
-
-const dominantSide =
-  longEdge > shortEdge ? 'LONG' : shortEdge > longEdge ? 'SHORT' : 'NEUTRAL';
-
-const executionEdge =
-  dominantSide === 'LONG'
-    ? `Long ${longEdge}/100`
-    : dominantSide === 'SHORT'
-    ? `Short ${shortEdge}/100`
-    : `Neutral ${Math.max(longEdge, shortEdge)}/100`;
-
-    const readinessScore = Math.max(longEdge, shortEdge);
+  const longReasons: string[] = Array.isArray(context.longReasons) ? context.longReasons : [];
+  const shortReasons: string[] = Array.isArray(context.shortReasons) ? context.shortReasons : [];
 
   const tradeAction =
     readinessScore > 70
@@ -427,20 +387,13 @@ const executionEdge =
         <div className="metric-grid four" style={{ marginTop: 16 }}>
           <Metric label="Action" value={tradeAction} />
           <Metric label="Bias" value={state.bias} />
-          <Metric label="Trend" value={state.trendState} />
-          <Metric label="Confidence" value={state.confidence} />
+          <Metric label="Smart Edge" value={`${smartEdgeScore}/100`} />
+          <Metric label="Can Trade Now" value={canTradeNowApi ? 'YES' : 'NO'} />
         </div>
 
         <div className="metric-grid three" style={{ marginTop: 12 }}>
           <MiniMetric label="Signal Strength" value={primarySignal?.strength ?? 'low'} />
-          <MiniMetric
-            label="Execution Edge"
-            value={
-              state.execution.longQuality > state.execution.shortQuality
-                ? `Long ${state.execution.longQuality}/100`
-                : `Short ${state.execution.shortQuality}/100`
-            }
-          />
+          <MiniMetric label="Execution Edge" value={executionEdge} />
           <MiniMetric label="Market Mode" value={state.structure} />
         </div>
 
@@ -465,13 +418,7 @@ const executionEdge =
         >
           <div className="label" style={{ marginBottom: 8 }}>Operator Read</div>
           <div className="value" style={{ fontSize: 16, lineHeight: 1.45 }}>
-            {tradeAction === 'WAIT'
-              ? 'No strong edge right now. Best decision is patience.'
-              : tradeAction === 'SETUP FORMING'
-              ? 'Conditions are improving, but confirmation is still needed.'
-              : state.bias === 'bullish'
-              ? 'Focus on long setups with confirmation and pullbacks into value.'
-              : 'Focus on short setups with confirmation and rejection into resistance.'}
+            {executionComment}
           </div>
         </div>
       </div>
@@ -620,23 +567,32 @@ const executionEdge =
 
       <div
         className="grid section"
-        style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}
+        style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}
       >
-        <ExecutionCard
+        <ExecutionCardV2
           title="Long Execution"
-          location={state.execution.longLocation}
-          quality={state.execution.longQuality}
-          riskState={state.execution.longRiskState}
-          note={state.execution.longExecutionNote}
-          tone={state.execution.longTone}
+          score={longEdge}
+          preferred={dominantSide === 'LONG'}
+          reasons={longReasons}
+          note={
+            dominantSide === 'LONG'
+              ? 'Best directional edge currently favors longs.'
+              : 'Long side is not dominant right now.'
+          }
+          tone={longEdge >= 70 ? 'good' : longEdge >= 55 ? 'warning' : 'bad'}
         />
-        <ExecutionCard
+
+        <ExecutionCardV2
           title="Short Execution"
-          location={state.execution.shortLocation}
-          quality={state.execution.shortQuality}
-          riskState={state.execution.shortRiskState}
-          note={state.execution.shortExecutionNote}
-          tone={state.execution.shortTone}
+          score={shortEdge}
+          preferred={dominantSide === 'SHORT'}
+          reasons={shortReasons}
+          note={
+            dominantSide === 'SHORT'
+              ? 'Best directional edge currently favors shorts.'
+              : 'Short side is not dominant right now.'
+          }
+          tone={shortEdge >= 70 ? 'good' : shortEdge >= 55 ? 'warning' : 'bad'}
         />
       </div>
 
@@ -1401,6 +1357,94 @@ function ExecutionCard({
       <div className="metric" style={{ marginTop: 12 }}>
         <div className="label">Execution note</div>
         <div className="value">{note}</div>
+      </div>
+    </div>
+  );
+}
+
+
+function ExecutionCardV2({
+  title,
+  score,
+  preferred,
+  reasons,
+  note,
+  tone,
+}: {
+  title: string;
+  score: number;
+  preferred: boolean;
+  reasons: string[];
+  note: string;
+  tone: 'good' | 'warning' | 'bad';
+}) {
+  const bg =
+    tone === 'good'
+      ? 'rgba(25,195,125,.12)'
+      : tone === 'warning'
+      ? 'rgba(245,185,66,.12)'
+      : 'rgba(255,93,93,.12)';
+
+  const border =
+    tone === 'good'
+      ? 'rgba(25,195,125,.28)'
+      : tone === 'warning'
+      ? 'rgba(245,185,66,.28)'
+      : 'rgba(255,93,93,.28)';
+
+  return (
+    <div
+      className="card"
+      style={{
+        background: bg,
+        border: `1px solid ${border}`,
+      }}
+    >
+      <div className="space-between" style={{ alignItems: 'center', gap: 12 }}>
+        <h2 style={{ margin: 0, fontSize: 18 }}>{title}</h2>
+        <span className={`badge ${preferred ? 'bullish' : 'neutral'}`}>
+          {preferred ? 'PREFERRED' : 'SECONDARY'}
+        </span>
+      </div>
+
+      <div className="metric-grid two" style={{ marginTop: 14 }}>
+        <Metric label="Execution Score" value={`${score}/100`} />
+        <Metric
+          label="Setup Quality"
+          value={
+            score >= 80
+              ? 'Very Strong'
+              : score >= 70
+                ? 'Strong'
+                : score >= 60
+                  ? 'Usable'
+                  : score >= 50
+                    ? 'Mixed'
+                    : 'Weak'
+          }
+        />
+      </div>
+
+      <div className="metric" style={{ marginTop: 12 }}>
+        <div className="label">Execution note</div>
+        <div className="value">{note}</div>
+      </div>
+
+      <div className="metric" style={{ marginTop: 12 }}>
+        <div className="label">Why</div>
+        <div className="value" style={{ fontSize: 15, lineHeight: 1.55 }}>
+          {reasons.length ? (
+            <ul style={{ margin: 0, paddingLeft: 18 }}>
+              {reasons.map((reason, i) => (
+                <li key={i} style={{ marginBottom: 6 }}>
+                  {reason}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            'No strong reasons available yet.'
+          )}
+        </div>
       </div>
     </div>
   );
