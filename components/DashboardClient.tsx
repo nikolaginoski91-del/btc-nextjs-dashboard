@@ -1573,19 +1573,6 @@ function ExecutionCard({
   );
 }
 
-function LocationBadge({ location }: { location: string }) {
-  const badgeClass =
-    location === 'active'
-      ? 'bullish'
-      : location === 'early'
-      ? 'neutral'
-      : location === 'late'
-      ? 'warn'
-      : 'bearish';
-
-  return <span className={`badge ${badgeClass}`}>{location.toUpperCase()}</span>;
-}
-
 function ExecutionCardV2({
   title,
   score,
@@ -1804,30 +1791,7 @@ function TriggerQualityCard({
     </div>
   );
 }
-function ChartLabel({
-  x,
-  y,
-  text,
-  color = '#ffffff',
-}: {
-  x: number;
-  y: number;
-  text: string;
-  color?: string;
-}) {
-  return (
-    <text
-      x={x}
-      y={y}
-      fill={color}
-      fontSize="11"
-      fontWeight="700"
-      textAnchor="start"
-    >
-      {text}
-    </text>
-  );
-}
+
 function ExplainList({ title, items }: { title: string; items: string[] }) {
   return (
     <div className="metric">

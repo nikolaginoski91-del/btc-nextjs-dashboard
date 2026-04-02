@@ -33,11 +33,20 @@ async function safeJson(url: string) {
   return res.json()
 }
 
+async function safeJsonOrNull(url: string) {
+  try {
+    return await safeJson(url)
+  } catch {
+    return null
+  }
+}
+
 function getCloses(klines: BinanceKline[]) {
   return klines.map((k) => Number(k[4]))
 }
 
 function calculateEMA(values: number[], period: number) {
+  if (!values.length) return 0
   if (values.length < period) return values[values.length - 1] ?? 0
 
   const multiplier = 2 / (period + 1)
@@ -101,13 +110,18 @@ function round2(value: number) {
 export async function GET() {
   try {
     const [btc24h, ethusd, btcKlines] = await Promise.all([
-      safeJson('https://api.binance.com/api/v3/ticker/24hr?symbol=BTCUSDT'),
-      safeJson('https://api.binance.com/api/v3/ticker/price?symbol=ETHUSDT'),
-      safeJson('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1h&limit=220'),
+      safeJsonOrNull('https://api.binance.com/api/v3/ticker/24hr?symbol=BTCUSDT'),
+      safeJsonOrNull('https://api.binance.com/api/v3/ticker/price?symbol=ETHUSDT'),
+      safeJsonOrNull('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1h&limit=220'),
     ])
 
+    if (!btcKlines || !Array.isArray(btcKlines) || btcKlines.length < 50) {
+      throw new Error('BTC klines unavailable')
+    }
+
     const closes = getCloses(btcKlines as BinanceKline[])
-    const price = Number(btc24h.lastPrice ?? closes[closes.length - 1] ?? 0)
+    const price =
+      Number((btc24h as any)?.lastPrice ?? 0) || Number(closes[closes.length - 1] ?? 0)
 
     const ema20 = calculateEMA(closes.slice(-40), 20)
     const ema50 = calculateEMA(closes.slice(-100), 50)
@@ -116,7 +130,7 @@ export async function GET() {
     const macdData = calculateMACD(closes)
     const macdHist = macdData.hist
 
-    const priceChangePercent = Number(btc24h.priceChangePercent ?? 0)
+    const priceChangePercent = Number((btc24h as any)?.priceChangePercent ?? 0)
 
     const trendBullish = price > ema20 && ema20 > ema50
     const trendBearish = price < ema20 && ema20 < ema50
@@ -155,8 +169,15 @@ export async function GET() {
       canTradeNow,
     })
 
-    const spy = `${priceChangePercent.toFixed(2)}%`
-    const ethbtc = `$${Number(ethusd.price).toFixed(2)}`
+    const spy =
+      btc24h && typeof (btc24h as any).priceChangePercent !== 'undefined'
+        ? `${Number((btc24h as any).priceChangePercent).toFixed(2)}%`
+        : 'Unavailable'
+
+    const ethbtc =
+      ethusd && typeof (ethusd as any).price !== 'undefined'
+        ? `$${Number((ethusd as any).price).toFixed(2)}`
+        : 'Unavailable'
 
     return NextResponse.json({
       dxy: 'Context enabled',
