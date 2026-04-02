@@ -792,6 +792,21 @@ export default function DashboardClient() {
         />
       </div>
 
+      <div
+        className="grid section"
+        style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))' }}
+      >
+        <TriggerQualityCard
+          bestActiveTrigger={bestActiveTrigger}
+          triggerComment={triggerComment}
+          longTriggerState={longTriggerState}
+          shortTriggerState={shortTriggerState}
+          longConfirmationScore={longConfirmationScore}
+          shortConfirmationScore={shortConfirmationScore}
+          triggerFailureWarning={triggerFailureWarning}
+        />
+      </div>
+
       <div className="tabbar">
         <button
           className={`primary-btn ${tab === 'overview' ? 'active' : ''}`}
@@ -1588,245 +1603,6 @@ function ExecutionCardV2({
       : 'rgba(255,93,93,.28)';
 
   return (
-    <div
-      className="card"
-      style={{
-        background: bg,
-        border: `1px solid ${border}`,
-      }}
-    >
-      <div className="space-between" style={{ alignItems: 'center', gap: 12 }}>
-        <h2 style={{ margin: 0, fontSize: 18 }}>{title}</h2>
-        <span className={`badge ${preferred ? 'bullish' : 'neutral'}`}>
-          {preferred ? 'PREFERRED' : 'SECONDARY'}
-        </span>
-      </div>
-
-      <div className="metric-grid two" style={{ marginTop: 14 }}>
-        <Metric label="Execution Score" value={`${score}/100`} />
-        <Metric
-          label="Setup Quality"
-          value={
-            score >= 80
-              ? 'Very Strong'
-              : score >= 70
-              ? 'Strong'
-              : score >= 60
-              ? 'Usable'
-              : score >= 50
-              ? 'Mixed'
-              : 'Weak'
-          }
-        />
-      </div>
-
-      <div className="metric" style={{ marginTop: 12 }}>
-        <div className="label">Execution note</div>
-        <div className="value">{note}</div>
-      </div>
-
-      <div className="metric" style={{ marginTop: 12 }}>
-        <div className="label">Why</div>
-        <div className="value" style={{ fontSize: 15, lineHeight: 1.55 }}>
-          {reasons.length ? (
-            <ul style={{ margin: 0, paddingLeft: 18 }}>
-              {reasons.map((reason, i) => (
-                <li key={i} style={{ marginBottom: 6 }}>
-                  {reason}
-                </li>
-              ))}
-            </ul>
-          ) : (
-            'No strong reasons available yet.'
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-
-function EntryQualityCard({
-  bestEntrySide,
-  entryComment,
-  longEntryQuality,
-  shortEntryQuality,
-  longChaseWarning,
-  shortChaseWarning,
-  longEntryDistancePct,
-  shortEntryDistancePct,
-}: {
-  bestEntrySide: string;
-  entryComment: string;
-  longEntryQuality: string;
-  shortEntryQuality: string;
-  longChaseWarning: string;
-  shortChaseWarning: string;
-  longEntryDistancePct: number;
-  shortEntryDistancePct: number;
-}) {
-  const badgeClass =
-    bestEntrySide === 'LONG' ? 'bullish' : bestEntrySide === 'SHORT' ? 'bearish' : 'warn';
-
-  return (
-    <div className="card">
-      <div className="space-between" style={{ alignItems: 'center', gap: 12 }}>
-        <h2 style={{ margin: 0 }}>Entry Quality / Chase Risk</h2>
-        <span className={`badge ${badgeClass}`}>{bestEntrySide}</span>
-      </div>
-
-      <div className="metric-grid two" style={{ marginTop: 16 }}>
-        <Metric label="Long Entry" value={longEntryQuality} />
-        <Metric label="Short Entry" value={shortEntryQuality} />
-        <Metric label="Long Distance" value={`${longEntryDistancePct.toFixed(2)}%`} />
-        <Metric label="Short Distance" value={`${shortEntryDistancePct.toFixed(2)}%`} />
-      </div>
-
-      <div className="metric" style={{ marginTop: 12 }}>
-        <div className="label">Best current entry side</div>
-        <div className="value">{bestEntrySide}</div>
-      </div>
-
-      <div className="metric" style={{ marginTop: 12 }}>
-        <div className="label">Entry comment</div>
-        <div className="value">{entryComment}</div>
-      </div>
-
-      <div className="metric-grid two" style={{ marginTop: 12 }}>
-        <div className="metric">
-          <div className="label">Long chase warning</div>
-          <div className="value">{longChaseWarning}</div>
-        </div>
-        <div className="metric">
-          <div className="label">Short chase warning</div>
-          <div className="value">{shortChaseWarning}</div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function SetupExplainCard({
-  title,
-  direction,
-  whyItems,
-  confirmationItems,
-  invalidationItems,
-  avoidTradeReason,
-}: {
-  title: string;
-  direction: string;
-  whyItems: string[];
-  confirmationItems: string[];
-  invalidationItems: string[];
-  avoidTradeReason: string;
-}) {
-  const badgeClass =
-    direction === 'LONG' ? 'bullish' : direction === 'SHORT' ? 'bearish' : 'neutral';
-
-  return (
-    <div className="card">
-      <div className="space-between" style={{ alignItems: 'center', gap: 12 }}>
-        <h2 style={{ margin: 0 }}>{title}</h2>
-        <span className={`badge ${badgeClass}`}>{direction}</span>
-      </div>
-
-      <div className="grid" style={{ gap: 12, marginTop: 16 }}>
-        <ExplainList title="Why" items={whyItems} />
-        <ExplainList title="What confirms this?" items={confirmationItems} />
-        <ExplainList title="What invalidates this?" items={invalidationItems} />
-        <div className="metric">
-          <div className="label">Avoid trade if</div>
-          <div className="value">{avoidTradeReason}</div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ExplainList({ title, items }: { title: string; items: string[] }) {
-  return (
-    <div className="metric">
-      <div className="label" style={{ marginBottom: 8 }}>{title}</div>
-      <div className="value" style={{ fontSize: 15, lineHeight: 1.55 }}>
-        {items.length ? (
-          <ul style={{ margin: 0, paddingLeft: 18 }}>
-            {items.map((item, i) => (
-              <li key={i} style={{ marginBottom: 6 }}>
-                {item}
-              </li>
-            ))}
-          </ul>
-        ) : (
-          'No details available.'
-        )}
-      </div>
-    </div>
-  );
-}
-
-function LocationBadge({ location }: { location: ExecutionLocation }) {
-  const cls =
-    location === 'active'
-      ? 'bullish'
-      : location === 'early'
-      ? 'neutral'
-      : location === 'late'
-      ? 'warn'
-      : 'bearish';
-
-  return <span className={`badge ${cls}`}>{location}</span>;
-}
-
-function ChartLabel({
-  x,
-  y,
-  text,
-  color,
-}: {
-  x: number;
-  y: number;
-  text: string;
-  color: string;
-}) {
-  return (
-    <text x={x} y={y} fontSize="11" fill={color} fontWeight="700">
-      {text}
-    </text>
-  );
-}
-
-
-function ExecutionCardV2({
-  title,
-  score,
-  preferred,
-  reasons,
-  note,
-  tone,
-}: {
-  title: string;
-  score: number;
-  preferred: boolean;
-  reasons: string[];
-  note: string;
-  tone: 'good' | 'warning' | 'bad';
-}) {
-  const bg =
-    tone === 'good'
-      ? 'rgba(25,195,125,.12)'
-      : tone === 'warning'
-      ? 'rgba(245,185,66,.12)'
-      : 'rgba(255,93,93,.12)';
-
-  const border =
-    tone === 'good'
-      ? 'rgba(25,195,125,.28)'
-      : tone === 'warning'
-      ? 'rgba(245,185,66,.28)'
-      : 'rgba(255,93,93,.28)';
-
-  return (
     <div className="card" style={{ background: bg, border: `1px solid ${border}` }}>
       <div className="space-between" style={{ alignItems: 'center', gap: 12 }}>
         <h2 style={{ margin: 0, fontSize: 18 }}>{title}</h2>
@@ -2015,7 +1791,30 @@ function TriggerQualityCard({
     </div>
   );
 }
-
+function ChartLabel({
+  x,
+  y,
+  text,
+  color = '#ffffff',
+}: {
+  x: number;
+  y: number;
+  text: string;
+  color?: string;
+}) {
+  return (
+    <text
+      x={x}
+      y={y}
+      fill={color}
+      fontSize="11"
+      fontWeight="700"
+      textAnchor="start"
+    >
+      {text}
+    </text>
+  );
+}
 function ExplainList({ title, items }: { title: string; items: string[] }) {
   return (
     <div className="metric">
