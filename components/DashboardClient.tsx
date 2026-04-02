@@ -1573,6 +1573,19 @@ function ExecutionCard({
   );
 }
 
+function LocationBadge({ location }: { location: string }) {
+  const badgeClass =
+    location === 'active'
+      ? 'bullish'
+      : location === 'early'
+      ? 'neutral'
+      : location === 'late'
+      ? 'warn'
+      : 'bearish';
+
+  return <span className={`badge ${badgeClass}`}>{location.toUpperCase()}</span>;
+}
+
 function ExecutionCardV2({
   title,
   score,
