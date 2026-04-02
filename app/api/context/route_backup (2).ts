@@ -180,6 +180,13 @@ export async function GET() {
       executionComment: execution.executionComment,
       longReasons: execution.longReasons,
       shortReasons: execution.shortReasons,
+      whyLong: execution.whyLong,
+      whyShort: execution.whyShort,
+      longConfirmations: execution.longConfirmations,
+      shortConfirmations: execution.shortConfirmations,
+      longInvalidations: execution.longInvalidations,
+      shortInvalidations: execution.shortInvalidations,
+      avoidTradeReason: execution.avoidTradeReason,
     })
   } catch (error) {
     console.error('Context API error:', error)
@@ -207,6 +214,13 @@ export async function GET() {
         executionComment: 'Context data unavailable right now.',
         longReasons: ['Data unavailable'],
         shortReasons: ['Data unavailable'],
+        whyLong: ['Data unavailable'],
+        whyShort: ['Data unavailable'],
+        longConfirmations: ['Data unavailable'],
+        shortConfirmations: ['Data unavailable'],
+        longInvalidations: ['Data unavailable'],
+        shortInvalidations: ['Data unavailable'],
+        avoidTradeReason: 'Avoid trading until context data returns.',
       },
       { status: 200 }
     )
