@@ -558,7 +558,65 @@ export function buildStateFromCandles(
     shortTargets: finalShortTargets,
    
         execution,
-context: context ?? {},
+
+context: {
+  dxy: context?.dxy ?? 'Unavailable',
+  spy: context?.spy ?? 'Unavailable',
+  ethbtc: context?.ethbtc ?? 'Unavailable',
+
+  executionComment:
+    context?.executionComment ??
+    `BTC is currently trading around ${last.close.toFixed(0)} with mixed or unavailable context.`,
+
+  longReasons:
+    context?.longReasons ?? ['Market context unavailable', 'Long edge cannot be confirmed'],
+
+  shortReasons:
+    context?.shortReasons ?? ['Market context unavailable', 'Short edge cannot be confirmed'],
+
+  whyLong:
+    context?.whyLong ?? ['Market context unavailable'],
+
+  whyShort:
+    context?.whyShort ?? ['Market context unavailable'],
+
+  longConfirmations:
+    context?.longConfirmations ?? ['Wait for live context confirmation to return'],
+
+  shortConfirmations:
+    context?.shortConfirmations ?? ['Wait for live context confirmation to return'],
+
+  longInvalidations:
+    context?.longInvalidations ?? ['Current long idea is invalid if structure fails'],
+
+  shortInvalidations:
+    context?.shortInvalidations ?? ['Current short idea is invalid if structure fails'],
+
+  avoidTradeReason:
+    context?.avoidTradeReason ?? 'Avoid trading until context data returns.',
+
+  tradeReadiness: context?.tradeReadiness ?? 35,
+  smartEdge: context?.smartEdge ?? 35,
+  canTradeNow: context?.canTradeNow ?? false,
+  longExecution: context?.longExecution ?? execution.longQuality,
+  shortExecution: context?.shortExecution ?? execution.shortQuality,
+  preferredSide: context?.preferredSide ?? 'NEUTRAL',
+
+  longEntryQuality: context?.longEntryQuality,
+  shortEntryQuality: context?.shortEntryQuality,
+  longChaseWarning: context?.longChaseWarning,
+  shortChaseWarning: context?.shortChaseWarning,
+  bestEntrySide: context?.bestEntrySide,
+  entryComment: context?.entryComment,
+
+  longTriggerState: context?.longTriggerState,
+  shortTriggerState: context?.shortTriggerState,
+  longConfirmationScore: context?.longConfirmationScore,
+  shortConfirmationScore: context?.shortConfirmationScore,
+  bestActiveTrigger: context?.bestActiveTrigger,
+  triggerComment: context?.triggerComment,
+  triggerFailureWarning: context?.triggerFailureWarning,
+},
 
 dxy: context?.dxy ?? 'Unavailable',
 spy: context?.spy ?? 'Unavailable',
