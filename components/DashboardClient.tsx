@@ -32,6 +32,15 @@ type Candle = {
   volume: number;
 };
 
+
+function classifyEntryQualityByDistance(distancePct: number) {
+  if (distancePct <= 0.5) return 'EXCELLENT';
+  if (distancePct <= 1.2) return 'GOOD';
+  if (distancePct <= 2.5) return 'OK';
+  return 'LATE';
+}
+
+
 export default function DashboardClient() {
   const [timeframe, setTimeframe] = useState<Timeframe>('4h');
   const [mode, setMode] = useState<LiveMode>('fallback');
@@ -137,154 +146,6 @@ export default function DashboardClient() {
   const avoidTradeReason = String(
     context.avoidTradeReason ?? 'Avoid trading without clean confirmation.'
   );
-
-  const longZoneMid = (state.longEntry[0] + state.longEntry[1]) / 2;
-  const shortZoneMid = (state.shortEntry[0] + state.shortEntry[1]) / 2;
-  const longTargetOne = state.longTargets[0] ?? state.longEntry[1];
-  const shortTargetOne = state.shortTargets[0] ?? state.shortEntry[0];
-
-  const longEntryDistancePct =
-    Math.abs((state.price - longZoneMid) / Math.max(state.price, 1)) * 100;
-  const shortEntryDistancePct =
-    Math.abs((state.price - shortZoneMid) / Math.max(state.price, 1)) * 100;
-
-  const longEntryQuality =
-    state.price < state.longEntry[0]
-      ? 'EARLY'
-      : state.price <= state.longEntry[1]
-      ? 'GOOD'
-      : state.price < longTargetOne * 0.992
-      ? 'LATE'
-      : 'CHASE';
-
-  const shortEntryQuality =
-    state.price > state.shortEntry[1]
-      ? 'EARLY'
-      : state.price >= state.shortEntry[0]
-      ? 'GOOD'
-      : state.price > shortTargetOne * 1.008
-      ? 'LATE'
-      : 'CHASE';
-
-  const longChaseWarning =
-    longEntryQuality === 'CHASE'
-      ? 'Price is already too far above the long value zone. Do not chase green candles here.'
-      : longEntryQuality === 'LATE'
-      ? 'Long is already moving away from value. Better entry usually comes on pullback.'
-      : longEntryQuality === 'EARLY'
-      ? 'Long value has not been tapped yet. Wait for reaction inside the zone.'
-      : 'Long is trading inside value. Entry quality is acceptable if confirmation appears.';
-
-  const shortChaseWarning =
-    shortEntryQuality === 'CHASE'
-      ? 'Price is already too far below the short value zone. Do not force late shorts here.'
-      : shortEntryQuality === 'LATE'
-      ? 'Short is already moving away from value. Better entry usually comes on rejection.'
-      : shortEntryQuality === 'EARLY'
-      ? 'Short value has not been tapped yet. Wait for reaction inside the zone.'
-      : 'Short is trading inside value. Entry quality is acceptable if rejection appears.';
-
-  const bestEntrySide =
-    dominantSide === 'LONG' && (longEntryQuality === 'GOOD' || longEntryQuality === 'EARLY')
-      ? 'LONG'
-      : dominantSide === 'SHORT' && (shortEntryQuality === 'GOOD' || shortEntryQuality === 'EARLY')
-      ? 'SHORT'
-      : 'WAIT';
-
-  const entryComment =
-    bestEntrySide === 'LONG'
-      ? longEntryQuality === 'GOOD'
-        ? 'Long side has both directional edge and acceptable entry location right now.'
-        : 'Long side is favored, but the cleaner trigger is still lower in the value zone.'
-      : bestEntrySide === 'SHORT'
-      ? shortEntryQuality === 'GOOD'
-        ? 'Short side has both directional edge and acceptable entry location right now.'
-        : 'Short side is favored, but the cleaner trigger is still higher in the value zone.'
-      : dominantSide === 'NEUTRAL'
-      ? 'Directional edge is mixed, so entry quality does not justify a trade yet.'
-      : 'Directional bias exists, but price location is too stretched or too late right now.';
-
-  const longWithinZone = state.price >= state.longEntry[0] && state.price <= state.longEntry[1];
-  const shortWithinZone = state.price >= state.shortEntry[0] && state.price <= state.shortEntry[1];
-  const longRejectedHigher = state.price > state.longEntry[1];
-  const shortRejectedLower = state.price < state.shortEntry[0];
-
-  const longConfirmationScore = Math.max(
-    0,
-    Math.min(
-      100,
-      (dominantSide === 'LONG' ? 25 : 0) +
-        (longWithinZone ? 30 : state.price < state.longEntry[0] ? 12 : 6) +
-        (state.price > state.longEntry[1] ? 18 : 0) +
-        (state.rsi >= 50 ? 12 : 0) +
-        (state.macdState?.toLowerCase().includes('bull') ? 15 : 0)
-    )
-  );
-
-  const shortConfirmationScore = Math.max(
-    0,
-    Math.min(
-      100,
-      (dominantSide === 'SHORT' ? 25 : 0) +
-        (shortWithinZone ? 30 : state.price > state.shortEntry[1] ? 12 : 6) +
-        (state.price < state.shortEntry[0] ? 18 : 0) +
-        (state.rsi <= 50 ? 12 : 0) +
-        (state.macdState?.toLowerCase().includes('bear') ? 15 : 0)
-    )
-  );
-
-  const longTriggerState =
-    dominantSide !== 'LONG'
-      ? 'WATCH'
-      : longWithinZone
-      ? 'TRIGGERING'
-      : longRejectedHigher && longConfirmationScore >= 70
-      ? 'CONFIRMED'
-      : state.price < state.longEntry[0] * 0.996
-      ? 'FAILED'
-      : 'WATCH';
-
-  const shortTriggerState =
-    dominantSide !== 'SHORT'
-      ? 'WATCH'
-      : shortWithinZone
-      ? 'TRIGGERING'
-      : shortRejectedLower && shortConfirmationScore >= 70
-      ? 'CONFIRMED'
-      : state.price > state.shortEntry[1] * 1.004
-      ? 'FAILED'
-      : 'WATCH';
-
-  const bestActiveTrigger =
-    longTriggerState === 'CONFIRMED'
-      ? 'LONG'
-      : shortTriggerState === 'CONFIRMED'
-      ? 'SHORT'
-      : longTriggerState === 'TRIGGERING' && longConfirmationScore >= shortConfirmationScore
-      ? 'LONG'
-      : shortTriggerState === 'TRIGGERING' && shortConfirmationScore > longConfirmationScore
-      ? 'SHORT'
-      : 'WAIT';
-
-  const triggerFailureWarning =
-    longTriggerState === 'FAILED'
-      ? 'Long trigger lost quality. Price moved away without clean bullish follow-through.'
-      : shortTriggerState === 'FAILED'
-      ? 'Short trigger lost quality. Price moved away without clean bearish follow-through.'
-      : longEntryQuality === 'CHASE' || shortEntryQuality === 'CHASE'
-      ? 'Chase risk is elevated. Let price come back into value or confirm cleanly first.'
-      : 'No major fakeout warning right now, but still wait for clean confirmation.';
-
-  const triggerComment =
-    bestActiveTrigger === 'LONG'
-      ? longTriggerState === 'CONFIRMED'
-        ? 'Long trigger is confirmed. Price reacted through the long zone with usable confirmation.'
-        : 'Long trigger is forming inside value. Watch for reclaim and bullish follow-through.'
-      : bestActiveTrigger === 'SHORT'
-      ? shortTriggerState === 'CONFIRMED'
-        ? 'Short trigger is confirmed. Price reacted through the short zone with usable rejection.'
-        : 'Short trigger is forming inside value. Watch for rejection and bearish follow-through.'
-      : 'No trigger is fully confirmed right now. Watch the zones, but avoid forcing execution.';
 
   const tradeAction =
     readinessScore > 70
@@ -772,38 +633,6 @@ export default function DashboardClient() {
           confirmationItems={dominantSide === 'SHORT' ? shortConfirmations : longConfirmations}
           invalidationItems={dominantSide === 'SHORT' ? shortInvalidations : longInvalidations}
           avoidTradeReason={avoidTradeReason}
-        />
-      </div>
-
-
-      <div
-        className="grid section"
-        style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))' }}
-      >
-        <EntryQualityCard
-          bestEntrySide={bestEntrySide}
-          entryComment={entryComment}
-          longEntryQuality={longEntryQuality}
-          shortEntryQuality={shortEntryQuality}
-          longChaseWarning={longChaseWarning}
-          shortChaseWarning={shortChaseWarning}
-          longEntryDistancePct={longEntryDistancePct}
-          shortEntryDistancePct={shortEntryDistancePct}
-        />
-      </div>
-
-      <div
-        className="grid section"
-        style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))' }}
-      >
-        <TriggerQualityCard
-          bestActiveTrigger={bestActiveTrigger}
-          triggerComment={triggerComment}
-          longTriggerState={longTriggerState}
-          shortTriggerState={shortTriggerState}
-          longConfirmationScore={longConfirmationScore}
-          shortConfirmationScore={shortConfirmationScore}
-          triggerFailureWarning={triggerFailureWarning}
         />
       </div>
 
@@ -1573,20 +1402,6 @@ function ExecutionCard({
   );
 }
 
-
-function LocationBadge({ location }: { location: string }) {
-  const badgeClass =
-    location === 'active'
-      ? 'bullish'
-      : location === 'early'
-      ? 'neutral'
-      : location === 'late'
-      ? 'warn'
-      : 'bearish';
-
-  return <span className={`badge ${badgeClass}`}>{location.toUpperCase()}</span>;
-}
-
 function ExecutionCardV2({
   title,
   score,
@@ -1617,7 +1432,13 @@ function ExecutionCardV2({
       : 'rgba(255,93,93,.28)';
 
   return (
-    <div className="card" style={{ background: bg, border: `1px solid ${border}` }}>
+    <div
+      className="card"
+      style={{
+        background: bg,
+        border: `1px solid ${border}`,
+      }}
+    >
       <div className="space-between" style={{ alignItems: 'center', gap: 12 }}>
         <h2 style={{ margin: 0, fontSize: 18 }}>{title}</h2>
         <span className={`badge ${preferred ? 'bullish' : 'neutral'}`}>
@@ -1706,132 +1527,6 @@ function SetupExplainCard({
   );
 }
 
-function EntryQualityCard({
-  bestEntrySide,
-  entryComment,
-  longEntryQuality,
-  shortEntryQuality,
-  longChaseWarning,
-  shortChaseWarning,
-  longEntryDistancePct,
-  shortEntryDistancePct,
-}: {
-  bestEntrySide: string;
-  entryComment: string;
-  longEntryQuality: string;
-  shortEntryQuality: string;
-  longChaseWarning: string;
-  shortChaseWarning: string;
-  longEntryDistancePct: number;
-  shortEntryDistancePct: number;
-}) {
-  return (
-    <div className="card">
-      <div className="space-between" style={{ alignItems: 'center', gap: 12 }}>
-        <h2 style={{ margin: 0 }}>Entry Quality / Chase Risk</h2>
-        <span className={`badge ${bestEntrySide === 'LONG' ? 'bullish' : bestEntrySide === 'SHORT' ? 'bearish' : 'neutral'}`}>
-          {bestEntrySide}
-        </span>
-      </div>
-
-      <div className="metric-grid two" style={{ marginTop: 16 }}>
-        <Metric label="Long Entry" value={longEntryQuality} />
-        <Metric label="Short Entry" value={shortEntryQuality} />
-        <Metric label="Long Distance %" value={`${longEntryDistancePct.toFixed(2)}%`} />
-        <Metric label="Short Distance %" value={`${shortEntryDistancePct.toFixed(2)}%`} />
-      </div>
-
-      <div className="metric" style={{ marginTop: 12 }}>
-        <div className="label">Entry comment</div>
-        <div className="value">{entryComment}</div>
-      </div>
-
-      <div className="grid" style={{ gap: 12, marginTop: 12 }}>
-        <div className="metric">
-          <div className="label">Long chase warning</div>
-          <div className="value">{longChaseWarning}</div>
-        </div>
-        <div className="metric">
-          <div className="label">Short chase warning</div>
-          <div className="value">{shortChaseWarning}</div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function TriggerQualityCard({
-  bestActiveTrigger,
-  triggerComment,
-  longTriggerState,
-  shortTriggerState,
-  longConfirmationScore,
-  shortConfirmationScore,
-  triggerFailureWarning,
-}: {
-  bestActiveTrigger: string;
-  triggerComment: string;
-  longTriggerState: string;
-  shortTriggerState: string;
-  longConfirmationScore: number;
-  shortConfirmationScore: number;
-  triggerFailureWarning: string;
-}) {
-  return (
-    <div className="card">
-      <div className="space-between" style={{ alignItems: 'center', gap: 12 }}>
-        <h2 style={{ margin: 0 }}>Trigger Quality / Confirmation</h2>
-        <span className={`badge ${bestActiveTrigger === 'LONG' ? 'bullish' : bestActiveTrigger === 'SHORT' ? 'bearish' : 'neutral'}`}>
-          {bestActiveTrigger}
-        </span>
-      </div>
-
-      <div className="metric-grid two" style={{ marginTop: 16 }}>
-        <Metric label="Long Trigger" value={longTriggerState} />
-        <Metric label="Short Trigger" value={shortTriggerState} />
-        <Metric label="Long Confirm %" value={`${Math.round(longConfirmationScore)}/100`} />
-        <Metric label="Short Confirm %" value={`${Math.round(shortConfirmationScore)}/100`} />
-      </div>
-
-      <div className="metric" style={{ marginTop: 12 }}>
-        <div className="label">Trigger comment</div>
-        <div className="value">{triggerComment}</div>
-      </div>
-
-      <div className="metric" style={{ marginTop: 12 }}>
-        <div className="label">Fakeout warning</div>
-        <div className="value">{triggerFailureWarning}</div>
-      </div>
-    </div>
-  );
-}
-
-
-function ChartLabel({
-  x,
-  y,
-  text,
-  color = '#ffffff',
-}: {
-  x: number;
-  y: number;
-  text: string;
-  color?: string;
-}) {
-  return (
-    <text
-      x={x}
-      y={y}
-      fill={color}
-      fontSize="11"
-      fontWeight="700"
-      textAnchor="start"
-    >
-      {text}
-    </text>
-  );
-}
-
 function ExplainList({ title, items }: { title: string; items: string[] }) {
   return (
     <div className="metric">
@@ -1846,13 +1541,43 @@ function ExplainList({ title, items }: { title: string; items: string[] }) {
             ))}
           </ul>
         ) : (
-          'No details available yet.'
+          'No details available.'
         )}
       </div>
     </div>
   );
 }
 
+function LocationBadge({ location }: { location: ExecutionLocation }) {
+  const cls =
+    location === 'active'
+      ? 'bullish'
+      : location === 'early'
+      ? 'neutral'
+      : location === 'late'
+      ? 'warn'
+      : 'bearish';
+
+  return <span className={`badge ${cls}`}>{location}</span>;
+}
+
+function ChartLabel({
+  x,
+  y,
+  text,
+  color,
+}: {
+  x: number;
+  y: number;
+  text: string;
+  color: string;
+}) {
+  return (
+    <text x={x} y={y} fontSize="11" fill={color} fontWeight="700">
+      {text}
+    </text>
+  );
+}
 
 function StatusDelta({ change }: { change: number }) {
   const positive = change >= 0;

@@ -418,7 +418,7 @@ function getExecutionState(params: {
 export function buildStateFromCandles(
   candles: Candle[],
   sourceTime: string,
-  context?: Partial<Pick<DashboardState, 'dxy' | 'spy' | 'ethbtc'>>
+  context: any = {}
 ): DashboardState {
   const closes = candles.map((c) => c.close);
   const highs = candles.map((c) => c.high);
@@ -566,5 +566,5 @@ ethbtc: context?.ethbtc ?? 'Unavailable',
 
     candles,
     signals,
-  };
-}
+  }
+};
