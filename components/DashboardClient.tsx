@@ -1,1695 +1,1776 @@
-'use client';
+"use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import {
-  Activity,
-  AlertTriangle,
-  CalendarDays,
-  RefreshCw,
-  ShieldAlert,
-  TrendingDown,
-  TrendingUp,
-  Wifi,
-  WifiOff,
-  Zap,
-} from 'lucide-react';
-import { buildStateFromCandles, FALLBACK_CANDLES, fmt } from '@/lib/market';
-import {
-  DashboardState,
-  LiveMode,
-  SignalCard,
-  Timeframe,
-  ExecutionTone,
-  ExecutionLocation,
-} from '@/lib/types';
+import React, { useEffect, useMemo, useState } from "react";
+import DashboardClientPhase60Base from "@/components/DashboardClient_backup";
 
-type Candle = {
-  time: number;
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-  volume: number;
+type Tone = "green" | "red" | "yellow" | "blue" | "neutral";
+
+type RegimeResponse = {
+  ok: boolean;
+  source?: string;
+  isLive?: boolean;
+  updatedAt?: string;
+  input?: {
+    price: number;
+    ema20: number;
+    ema50: number;
+    ema200: number;
+    rsi: number;
+    atrPercent: number;
+    volumeRatio: number;
+    trendStrength: number;
+  };
+  result?: {
+    regime: "TRENDING_BULL" | "TRENDING_BEAR" | "RANGE" | "TRANSITION" | "BREAKOUT_WATCH";
+    confidence: number;
+    directionBias: "BULLISH" | "BEARISH" | "NEUTRAL";
+    tradeCondition: "FAVORABLE" | "CAUTION" | "DEFENSIVE";
+    bullScore: number;
+    bearScore: number;
+    rangeScore: number;
+    breakoutScore: number;
+    summary: string;
+    operatorNote: string;
+    confirms: string[];
+    invalidates: string[];
+  };
+  tradeGate?: {
+    status: "TRADE ALLOWED" | "WAIT FOR CONFIRMATION" | "TRADE FILTERED";
+    score: number;
+    reason: string;
+    notes: string[];
+  };
 };
 
+function toneColors(tone: Tone) {
+  switch (tone) {
+    case "green":
+      return {
+        bg: "rgba(16,185,129,0.14)",
+        border: "rgba(16,185,129,0.28)",
+        text: "#86efac",
+      };
+    case "red":
+      return {
+        bg: "rgba(239,68,68,0.14)",
+        border: "rgba(239,68,68,0.28)",
+        text: "#fca5a5",
+      };
+    case "yellow":
+      return {
+        bg: "rgba(245,158,11,0.14)",
+        border: "rgba(245,158,11,0.28)",
+        text: "#fcd34d",
+      };
+    case "blue":
+      return {
+        bg: "rgba(59,130,246,0.14)",
+        border: "rgba(59,130,246,0.28)",
+        text: "#93c5fd",
+      };
+    default:
+      return {
+        bg: "rgba(255,255,255,0.06)",
+        border: "rgba(255,255,255,0.10)",
+        text: "rgba(255,255,255,0.88)",
+      };
+  }
+}
 
-function classifyEntryQualityByDistance(distancePct: number) {
-  if (distancePct <= 0.5) return 'EXCELLENT';
-  if (distancePct <= 1.2) return 'GOOD';
-  if (distancePct <= 2.5) return 'OK';
-  return 'LATE';
+function cardStyle(extra: React.CSSProperties = {}): React.CSSProperties {
+  return {
+    border: "1px solid rgba(255,255,255,0.10)",
+    background: "rgba(255,255,255,0.04)",
+    borderRadius: 22,
+    padding: 18,
+    ...extra,
+  };
+}
+
+function labelStyle(): React.CSSProperties {
+  return {
+    fontSize: 11,
+    textTransform: "uppercase",
+    letterSpacing: "0.18em",
+    color: "rgba(255,255,255,0.45)",
+    marginBottom: 10,
+  };
+}
+
+function smallMetaStyle(): React.CSSProperties {
+  return {
+    margin: 0,
+    fontSize: 12,
+    color: "rgba(255,255,255,0.55)",
+  };
+}
+
+function Badge({
+  children,
+  tone = "neutral",
+}: {
+  children: React.ReactNode;
+  tone?: Tone;
+}) {
+  const colors = toneColors(tone);
+
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        borderRadius: 999,
+        border: `1px solid ${colors.border}`,
+        background: colors.bg,
+        color: colors.text,
+        padding: "7px 12px",
+        fontSize: 12,
+        fontWeight: 700,
+        letterSpacing: "0.04em",
+      }}
+    >
+      {children}
+    </span>
+  );
+}
+
+function MetricCard({
+  label,
+  value,
+  tone = "neutral",
+}: {
+  label: string;
+  value: React.ReactNode;
+  tone?: Tone;
+}) {
+  const colors = toneColors(tone);
+
+  return (
+    <div style={cardStyle()}>
+      <p style={labelStyle()}>{label}</p>
+      <div style={{ fontSize: 26, fontWeight: 700, color: colors.text }}>{value}</div>
+    </div>
+  );
+}
+
+function ScoreBar({ label, value }: { label: string; value: number }) {
+  const safe = Math.max(0, Math.min(100, value));
+  let fill = "#f87171";
+  if (safe >= 70) fill = "#34d399";
+  else if (safe >= 45) fill = "#fbbf24";
+
+  return (
+    <div style={{ display: "grid", gap: 8 }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          gap: 12,
+          fontSize: 14,
+          color: "rgba(255,255,255,0.82)",
+        }}
+      >
+        <span>{label}</span>
+        <span>{safe}/100</span>
+      </div>
+
+      <div
+        style={{
+          height: 10,
+          width: "100%",
+          overflow: "hidden",
+          borderRadius: 999,
+          background: "rgba(255,255,255,0.10)",
+        }}
+      >
+        <div
+          style={{
+            height: "100%",
+            width: `${safe}%`,
+            borderRadius: 999,
+            background: fill,
+            transition: "width 400ms ease",
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function InputCell({ children }: { children: React.ReactNode }) {
+  return (
+    <div
+      style={{
+        border: "1px solid rgba(255,255,255,0.10)",
+        background: "rgba(0,0,0,0.20)",
+        borderRadius: 16,
+        padding: 14,
+        color: "rgba(255,255,255,0.88)",
+        fontSize: 14,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function ListPanel({
+  title,
+  badge,
+  tone,
+  items,
+}: {
+  title: string;
+  badge: string;
+  tone: Tone;
+  items: string[];
+}) {
+  const colors = toneColors(tone);
+
+  return (
+    <div
+      style={cardStyle({
+        background: colors.bg,
+        border: `1px solid ${colors.border}`,
+      })}
+    >
+      <div
+        style={{
+          marginBottom: 16,
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          gap: 12,
+          flexWrap: "wrap",
+        }}
+      >
+        <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#fff" }}>{title}</h3>
+        <Badge tone={tone}>{badge}</Badge>
+      </div>
+
+      <ul style={{ margin: 0, paddingLeft: 18, color: "rgba(255,255,255,0.92)", fontSize: 14, lineHeight: 1.6 }}>
+        {items.map((item, i) => (
+          <li key={i} style={{ marginBottom: 8 }}>
+            {item}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function sourceTone(source?: string, isLive?: boolean): Tone {
+  if (!source || source === "fallback_mock" || !isLive) return "yellow";
+  if (source === "live_context") return "green";
+  if (source === "live_btc") return "blue";
+  return "neutral";
 }
 
 
-export default function DashboardClient() {
-  const [timeframe, setTimeframe] = useState<Timeframe>('4h');
-  const [mode, setMode] = useState<LiveMode>('fallback');
-  const [errorText, setErrorText] = useState('');
-  const [activeSignal, setActiveSignal] = useState<SignalCard | null>(null);
-  const [tab, setTab] = useState<'overview' | 'signals' | 'calendar'>('overview');
-  const [state, setState] = useState<DashboardState>(() =>
-    buildStateFromCandles(FALLBACK_CANDLES['4h'], 'Loading...')
-  );
 
-  const visibleCandles = useMemo(() => state.candles.slice(-60), [state.candles]);
-  const primarySignal = state.signals[0] ?? null;
+function deriveTradeGate(result?: RegimeResponse["result"]) {
+  if (!result) {
+    return {
+      status: "WAIT FOR CONFIRMATION" as const,
+      score: 50,
+      reason: "No regime result available yet.",
+      notes: [],
+    };
+  }
 
-  async function loadLive() {
-    setMode('loading');
-    setErrorText('');
+  let score = 50;
+  const notes: string[] = [];
 
+  if (result.confidence >= 80) score += 14;
+  else if (result.confidence >= 65) score += 8;
+  else score -= 6;
+
+  if (result.tradeCondition === "FAVORABLE") {
+    score += 14;
+    notes.push("Trade condition is favorable.");
+  } else if (result.tradeCondition === "CAUTION") {
+    score -= 4;
+    notes.push("More confirmation is needed.");
+  } else {
+    score -= 18;
+    notes.push("Trade condition is defensive.");
+  }
+
+  if (result.regime === "RANGE") {
+    score -= 12;
+    notes.push("Range market reduces trend edge.");
+  }
+
+  if (result.regime === "TRANSITION") {
+    score -= 10;
+    notes.push("Transition market increases fakeout risk.");
+  }
+
+  if (result.regime === "BREAKOUT_WATCH") {
+    score -= 6;
+    notes.push("Breakout confirmation is still missing.");
+  }
+
+  if (result.directionBias === "NEUTRAL") {
+    score -= 8;
+    notes.push("Directional bias is neutral.");
+  }
+
+  score = Math.max(0, Math.min(100, Math.round(score)));
+
+  let status: "TRADE ALLOWED" | "WAIT FOR CONFIRMATION" | "TRADE FILTERED" = "WAIT FOR CONFIRMATION";
+  let reason = "Conditions are mixed. Wait for cleaner confirmation.";
+
+  if (score >= 74) {
+    status = "TRADE ALLOWED";
+    reason = "Environment is good enough to trade if entry confirms.";
+  } else if (score <= 44) {
+    status = "TRADE FILTERED";
+    reason = "Market conditions should be filtered out for now.";
+  }
+
+  return { status, score, reason, notes };
+}
+
+function sourceLabel(source?: string, isLive?: boolean) {
+  if (!source || source === "fallback_mock" || !isLive) return "FALLBACK DATA";
+  if (source === "live_context") return "LIVE: CONTEXT";
+  if (source === "live_btc") return "LIVE: BTC ROUTE";
+  return source.toUpperCase();
+}
+
+function RegimePanel() {
+  const [data, setData] = useState<RegimeResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  async function loadRegime() {
     try {
-      const [btcRes, ctxRes] = await Promise.allSettled([
-        fetch(`/api/btc?tf=${encodeURIComponent(timeframe)}`, { cache: 'no-store' }),
-        fetch('/api/context', { cache: 'no-store' }),
-      ]);
-
-      if (btcRes.status !== 'fulfilled' || !btcRes.value.ok) {
-        throw new Error(
-          `BTC route failed${btcRes.status === 'fulfilled' ? ` (${btcRes.value.status})` : ''}`
-        );
-      }
-
-      const btcJson = await btcRes.value.json();
-      const ctxJson =
-        ctxRes.status === 'fulfilled' && ctxRes.value.ok ? await ctxRes.value.json() : {};
-
-      const nextState = buildStateFromCandles(
-        btcJson.candles,
-        new Date().toLocaleString(),
-        ctxJson
-      );
-
-      setState(nextState);
-      setActiveSignal(nextState.signals[0] ?? null);
-      setMode(btcJson.source === 'coingecko' ? 'live-coingecko' : 'live-binance');
+      setLoading(true);
+      const res = await fetch("/api/regime", { cache: "no-store" });
+      const json = await res.json();
+      setData(json);
     } catch (error) {
-      setMode('failed');
-      setErrorText(error instanceof Error ? error.message : 'Unknown live fetch error');
+      console.error("Failed to load regime:", error);
+    } finally {
+      setLoading(false);
     }
   }
 
   useEffect(() => {
-    const fallbackState = buildStateFromCandles(
-      FALLBACK_CANDLES[timeframe],
-      new Date().toLocaleString()
-    );
-    setState(fallbackState);
-    setActiveSignal(fallbackState.signals[0] ?? null);
-    void loadLive();
-  }, [timeframe]);
+    loadRegime();
+  }, []);
 
-  const rrLong =
-    ((state.longTargets[1] ?? state.longTargets[0]) - state.longEntry[1]) /
-    Math.max(state.longEntry[1] - state.longStop, 1);
+  const result = data?.result;
+  const input = data?.input;
 
-  const rrShort =
-    (state.shortEntry[0] - (state.shortTargets[1] ?? state.shortTargets[0])) /
-    Math.max(state.shortStop - state.shortEntry[0], 1);
+  const regimeTone: Tone =
+    result?.regime === "TRENDING_BULL"
+      ? "green"
+      : result?.regime === "TRENDING_BEAR"
+      ? "red"
+      : result?.regime === "BREAKOUT_WATCH"
+      ? "blue"
+      : result?.regime === "RANGE"
+      ? "yellow"
+      : "neutral";
 
-  const context = (state as any).context ?? {};
+  const biasTone: Tone =
+    result?.directionBias === "BULLISH"
+      ? "green"
+      : result?.directionBias === "BEARISH"
+      ? "red"
+      : "neutral";
 
-  const longEdge = Number(context.longExecution ?? state.execution.longQuality ?? 35);
-  const shortEdge = Number(context.shortExecution ?? state.execution.shortQuality ?? 35);
-  const dominantSide = String(context.preferredSide ?? 'NEUTRAL');
+  const conditionTone: Tone =
+    result?.tradeCondition === "FAVORABLE"
+      ? "green"
+      : result?.tradeCondition === "DEFENSIVE"
+      ? "red"
+      : "yellow";
 
-  const executionEdge =
-    dominantSide === 'LONG'
-      ? `Long ${longEdge}/100`
-      : dominantSide === 'SHORT'
-      ? `Short ${shortEdge}/100`
-      : `Neutral ${Math.max(longEdge, shortEdge)}/100`;
+  const liveTone = sourceTone(data?.source, data?.isLive);
+  const tradeGate = data?.tradeGate ?? deriveTradeGate(result);
 
-  const readinessScore = Number(context.tradeReadiness ?? Math.max(longEdge, shortEdge));
-  const smartEdgeScore = Number(context.smartEdge ?? 35);
-  const canTradeNowApi = Boolean(context.canTradeNow ?? false);
-  const executionComment = String(
-    context.executionComment ?? 'No execution comment available.'
+  const topGridStyle = useMemo<React.CSSProperties>(
+    () => ({
+      display: "grid",
+      gap: 16,
+      gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+    }),
+    []
   );
-
-  const longReasons: string[] = Array.isArray(context.longReasons) ? context.longReasons : [];
-  const shortReasons: string[] = Array.isArray(context.shortReasons) ? context.shortReasons : [];
-  const whyLong: string[] = Array.isArray(context.whyLong) ? context.whyLong : [];
-  const whyShort: string[] = Array.isArray(context.whyShort) ? context.whyShort : [];
-  const longConfirmations: string[] = Array.isArray(context.longConfirmations)
-    ? context.longConfirmations
-    : [];
-  const shortConfirmations: string[] = Array.isArray(context.shortConfirmations)
-    ? context.shortConfirmations
-    : [];
-  const longInvalidations: string[] = Array.isArray(context.longInvalidations)
-    ? context.longInvalidations
-    : [];
-  const shortInvalidations: string[] = Array.isArray(context.shortInvalidations)
-    ? context.shortInvalidations
-    : [];
-  const avoidTradeReason = String(
-    context.avoidTradeReason ?? 'Avoid trading without clean confirmation.'
-  );
-
-  const tradeAction =
-    readinessScore > 70
-      ? state.bias === 'bullish'
-        ? 'LOOK FOR LONG'
-        : state.bias === 'bearish'
-        ? 'LOOK FOR SHORT'
-        : 'WAIT'
-      : readinessScore > 50
-      ? 'SETUP FORMING'
-      : 'WAIT';
-
-  const tradeEdge =
-    readinessScore > 75 ? 'STRONG' : readinessScore > 55 ? 'MEDIUM' : 'WEAK';
-
-  const readinessTone =
-    readinessScore >= 70 ? 'bullish' : readinessScore >= 50 ? 'warn' : 'bearish';
-
-  const readinessBar =
-    readinessScore >= 70
-      ? 'linear-gradient(90deg, rgba(25,195,125,.88), rgba(134,239,172,.98))'
-      : readinessScore >= 50
-      ? 'linear-gradient(90deg, rgba(245,185,66,.88), rgba(255,221,126,.98))'
-      : 'linear-gradient(90deg, rgba(255,93,93,.88), rgba(252,165,165,.98))';
-
-  const readinessGlow =
-    readinessScore >= 70
-      ? '0 0 18px rgba(25,195,125,.28)'
-      : readinessScore >= 50
-      ? '0 0 18px rgba(245,185,66,.24)'
-      : '0 0 18px rgba(255,93,93,.24)';
-
-  const actionBadgeClass =
-    tradeAction === 'LOOK FOR LONG'
-      ? 'bullish'
-      : tradeAction === 'LOOK FOR SHORT'
-      ? 'bearish'
-      : tradeAction === 'SETUP FORMING'
-      ? 'neutral'
-      : 'warn';
-
-  const supportLevels = [state.longEntry[0], state.longEntry[1], ...state.supports]
-    .filter((level) => Number.isFinite(level))
-    .sort((a, b) => b - a);
-
-  const resistanceLevels = [state.shortEntry[0], state.shortEntry[1], ...state.resistances]
-    .filter((level) => Number.isFinite(level))
-    .sort((a, b) => a - b);
-
-  const nearestSupport =
-    supportLevels.find((level) => level <= state.price + 120) ?? supportLevels[0] ?? state.longEntry[0];
-
-  const nearestResistance =
-    resistanceLevels.find((level) => level >= state.price - 120) ??
-    resistanceLevels[0] ??
-    state.shortEntry[0];
-
-  const triggerBelow = Math.min(nearestSupport, state.longEntry[0]);
-  const triggerAbove = Math.max(nearestResistance, state.shortEntry[0]);
-
-  const tradeNowStatus =
-    readinessScore >= 70
-      ? state.bias === 'bullish'
-        ? 'LONG READY'
-        : state.bias === 'bearish'
-        ? 'SHORT READY'
-        : 'WAIT FOR CONFIRMATION'
-      : readinessScore >= 50
-      ? 'SETUP FORMING'
-      : 'NO TRADE NOW';
-
-  const nextTrigger =
-    tradeNowStatus === 'LONG READY'
-      ? `Watch ${fmt(state.longEntry[0], 0)} - ${fmt(state.longEntry[1], 0)} for reaction. Best confirmation is reclaim strength back above ${fmt(state.longEntry[1], 0)} with room toward ${fmt(state.longTargets[0], 0)}.`
-      : tradeNowStatus === 'SHORT READY'
-      ? `Watch ${fmt(state.shortEntry[0], 0)} - ${fmt(state.shortEntry[1], 0)} for rejection. Best confirmation is weakness back below ${fmt(state.shortEntry[0], 0)} with room toward ${fmt(state.shortTargets[0], 0)}.`
-      : tradeNowStatus === 'SETUP FORMING'
-      ? `Wait for one of two things: sweep below ${fmt(triggerBelow, 0)} and reclaim, or breakout close above ${fmt(triggerAbove, 0)}.`
-      : `No entry in the middle. Let price either sweep below ${fmt(triggerBelow, 0)} or break above ${fmt(triggerAbove, 0)} first.`;
-
-  const doNotTradeIf =
-    state.bias === 'bullish'
-      ? `BTC loses ${fmt(state.longStop, 0)} or keeps rejecting below ${fmt(triggerAbove, 0)}.`
-      : state.bias === 'bearish'
-      ? `BTC reclaims ${fmt(state.shortStop, 0)} and holds above it with momentum.`
-      : `BTC keeps chopping between ${fmt(triggerBelow, 0)} and ${fmt(triggerAbove, 0)} without confirmation.`;
-
-  const tradeNowBadgeClass =
-    tradeNowStatus === 'LONG READY'
-      ? 'bullish'
-      : tradeNowStatus === 'SHORT READY'
-      ? 'bearish'
-      : tradeNowStatus === 'SETUP FORMING' || tradeNowStatus === 'WAIT FOR CONFIRMATION'
-      ? 'neutral'
-      : 'warn';
 
   return (
-    <div className="container">
-      <div className="topbar">
+    <section
+      style={{
+        width: "100%",
+        borderRadius: 28,
+        border: "1px solid rgba(255,255,255,0.10)",
+        background:
+          "linear-gradient(135deg, rgba(11,18,32,0.98) 0%, rgba(11,16,32,0.98) 48%, rgba(5,7,13,0.98) 100%)",
+        padding: 22,
+        boxShadow: "0 20px 80px rgba(0,0,0,0.35)",
+        color: "#fff",
+      }}
+    >
+      <div
+        style={{
+          marginBottom: 24,
+          display: "flex",
+          flexWrap: "wrap",
+          gap: 16,
+          alignItems: "center",
+          justifyContent: "space-between",
+        }}
+      >
         <div>
-          <div
-            className="small"
-            style={{ color: 'var(--neutral)', textTransform: 'uppercase', letterSpacing: '.22em' }}
+          <p
+            style={{
+              margin: "0 0 8px 0",
+              fontSize: 11,
+              textTransform: "uppercase",
+              letterSpacing: "0.22em",
+              color: "rgba(103,232,249,0.70)",
+            }}
           >
-            Hosted build for Vercel / Netlify
-          </div>
-          <h1 style={{ margin: '8px 0', fontSize: 'clamp(28px, 5vw, 52px)' }}>
-            BTC/USDT Live Dashboard
-          </h1>
-          <div className="muted">
-            This version is built for a real web origin so live requests work on iPhone and laptop.
-          </div>
+            Phase 6.2
+          </p>
+          <h2 style={{ margin: 0, fontSize: 34, lineHeight: 1.1, fontWeight: 800, color: "#fff" }}>
+            Regime-Aware Market Filter
+          </h2>
+          <p style={{ margin: "10px 0 0 0", fontSize: 15, color: "rgba(255,255,255,0.64)" }}>
+            Regime is now connected to execution filtering, trade readiness, and preferred side quality.
+          </p>
         </div>
 
-        <div className="row" style={{ justifyContent: 'flex-end' }}>
-          <div className="switcher">
-            {(['15m', '1h', '4h', '1d'] as Timeframe[]).map((tf) => (
-              <button
-                key={tf}
-                className={timeframe === tf ? 'active' : ''}
-                onClick={() => setTimeframe(tf)}
-              >
-                {tf}
-              </button>
-            ))}
-          </div>
-
-          <button className="primary-btn" onClick={loadLive}>
-            <RefreshCw size={16} style={{ marginRight: 6, verticalAlign: 'middle' }} />
-            Refresh Live Data
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+          <Badge tone={liveTone}>{sourceLabel(data?.source, data?.isLive)}</Badge>
+          <button
+            onClick={loadRegime}
+            style={{
+              borderRadius: 18,
+              border: "1px solid rgba(34,211,238,0.20)",
+              background: "rgba(34,211,238,0.10)",
+              color: "#bae6fd",
+              padding: "12px 16px",
+              fontSize: 14,
+              fontWeight: 700,
+              cursor: "pointer",
+            }}
+          >
+            Refresh Regime
           </button>
-
-          <StatusBadge mode={mode} />
         </div>
       </div>
 
-
-      <div className="card section" style={{ marginBottom: 16 }}>
-        <div className="space-between" style={{ alignItems: 'center', gap: 12 }}>
-          <div>
-            <div
-              className="small"
-              style={{ color: 'var(--neutral)', textTransform: 'uppercase', letterSpacing: '.18em' }}
-            >
-              Operator decision layer
-            </div>
-            <h2 style={{ margin: '6px 0 0 0' }}>Can I Trade Now?</h2>
+      {loading ? (
+        <div style={cardStyle({ color: "rgba(255,255,255,0.70)", fontSize: 14 })}>Loading regime engine...</div>
+      ) : !result ? (
+        <div
+          style={cardStyle({
+            color: "#fecaca",
+            background: "rgba(239,68,68,0.10)",
+            border: "1px solid rgba(239,68,68,0.20)",
+            fontSize: 14,
+          })}
+        >
+          Failed to load regime engine.
+        </div>
+      ) : (
+        <div style={{ display: "grid", gap: 20 }}>
+          <div style={{ ...cardStyle({ background: "rgba(255,255,255,0.03)" }), paddingTop: 14, paddingBottom: 14 }}>
+            <p style={smallMetaStyle()}>
+              Source: <strong style={{ color: "#fff" }}>{data?.source ?? "unknown"}</strong>
+              {" · "}
+              Updated: <strong style={{ color: "#fff" }}>{data?.updatedAt ? new Date(data.updatedAt).toLocaleString() : "-"}</strong>
+            </p>
           </div>
 
-          <span
-            className={`badge ${tradeNowBadgeClass}`}
-            style={{ fontSize: 13, fontWeight: 800, padding: '10px 14px', letterSpacing: '.05em' }}
+          <div style={topGridStyle}>
+            <div style={cardStyle()}>
+              <p style={labelStyle()}>Market Regime</p>
+              <Badge tone={regimeTone}>{result.regime}</Badge>
+            </div>
+
+            <div style={cardStyle()}>
+              <p style={labelStyle()}>Direction Bias</p>
+              <Badge tone={biasTone}>{result.directionBias}</Badge>
+            </div>
+
+            <div style={cardStyle()}>
+              <p style={labelStyle()}>Trade Condition</p>
+              <Badge tone={conditionTone}>{result.tradeCondition}</Badge>
+            </div>
+
+            <MetricCard label="Confidence" value={`${result.confidence}%`} tone={conditionTone} />
+          </div>
+
+          <div
+            style={cardStyle({
+              background: "rgba(34,211,238,0.06)",
+              border: "1px solid rgba(34,211,238,0.12)",
+            })}
           >
-            {tradeNowStatus}
-          </span>
-        </div>
-
-        <div className="metric-grid four" style={{ marginTop: 16 }}>
-          <Metric label="Status" value={tradeNowStatus} />
-          <Metric label="Execution Bias" value={state.bias} />
-          <Metric label="Sweep Below" value={`$${fmt(triggerBelow, 0)}`} />
-          <Metric label="Break Above" value={`$${fmt(triggerAbove, 0)}`} />
-        </div>
-
-        <div className="metric-grid three" style={{ marginTop: 10 }}>
-          <Metric label="Confidence" value={state.confidence} />
-          <Metric label="Trend State" value={state.trendState} />
-          <Metric
-            label="Primary Signal"
-            value={primarySignal ? primarySignal.title : 'No active signal'}
-          />
-        </div>
-
-        <div
-          style={{
-            marginTop: 12,
-            border: '1px solid rgba(255,255,255,.08)',
-            background: 'rgba(255,255,255,.03)',
-            borderRadius: 16,
-            padding: 14,
-          }}
-        >
-          <div className="label">Next Trigger</div>
-          <div className="value" style={{ marginTop: 6 }}>{nextTrigger}</div>
-        </div>
-
-        <div
-          style={{
-            marginTop: 10,
-            border: '1px solid rgba(255,255,255,.08)',
-            background: 'rgba(255,255,255,.025)',
-            borderRadius: 16,
-            padding: 14,
-          }}
-        >
-          <div className="label">Do Not Trade If</div>
-          <div className="value" style={{ marginTop: 6 }}>{doNotTradeIf}</div>
-        </div>
-      </div>
-      <div className="card section">
-        <div className="space-between" style={{ alignItems: 'center', gap: 12 }}>
-          <h2 style={{ margin: 0 }}>Trade Readiness</h2>
-          <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-            <span
-              className={`badge ${actionBadgeClass}`}
-              style={{ fontSize: 13, fontWeight: 800, padding: '10px 14px', letterSpacing: '.05em' }}
+            <p
+              style={{
+                margin: 0,
+                fontSize: 11,
+                textTransform: "uppercase",
+                letterSpacing: "0.18em",
+                color: "rgba(103,232,249,0.66)",
+              }}
             >
-              {tradeAction}
-            </span>
-            <span
-              className={`badge ${readinessTone}`}
-              style={{ fontSize: 13, fontWeight: 800, padding: '10px 14px', letterSpacing: '.05em' }}
-            >
-              {tradeEdge}
-            </span>
-          </div>
-        </div>
-
-        <div
-          style={{
-            marginTop: 16,
-            border: '1px solid rgba(255,255,255,.08)',
-            background: 'rgba(255,255,255,.03)',
-            borderRadius: 16,
-            padding: 12,
-          }}
-        >
-          <div className="space-between" style={{ marginBottom: 10, gap: 12 }}>
-            <div className="small" style={{ color: 'var(--muted)', letterSpacing: '.14em' }}>
-              SCORE MOMENTUM
-            </div>
-            <div style={{ fontWeight: 800, fontSize: 18 }}>{readinessScore}/100</div>
+              Operator Summary
+            </p>
+            <p style={{ margin: "12px 0 0 0", fontSize: 22, fontWeight: 700, color: "#fff" }}>{result.summary}</p>
+            <p style={{ margin: "10px 0 0 0", fontSize: 14, color: "rgba(255,255,255,0.72)" }}>
+              {result.operatorNote}
+            </p>
           </div>
 
           <div
             style={{
-              height: 12,
-              width: '100%',
-              borderRadius: 999,
-              background: 'rgba(255,255,255,.08)',
-              overflow: 'hidden',
+              display: "grid",
+              gap: 16,
+              gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
             }}
           >
-            <div
-              style={{
-                height: '100%',
-                width: `${readinessScore}%`,
-                borderRadius: 999,
-                background: readinessBar,
-                boxShadow: readinessGlow,
-                transition: 'width .35s ease',
-              }}
-            />
-          </div>
-
-          <div
-            className="row"
-            style={{ marginTop: 10, justifyContent: 'space-between', color: 'var(--muted)', fontSize: 12 }}
-          >
-            <span style={{ color: 'rgba(252,165,165,.95)' }}>Weak</span>
-            <span style={{ color: 'rgba(255,221,126,.95)' }}>Building</span>
-            <span style={{ color: 'rgba(134,239,172,.95)' }}>Strong</span>
-          </div>
-        </div>
-
-        <div className="metric-grid four" style={{ marginTop: 16 }}>
-          <Metric label="Action" value={tradeAction} />
-          <Metric label="Bias" value={state.bias} />
-          <Metric label="Smart Edge" value={`${smartEdgeScore}/100`} />
-          <Metric label="Can Trade Now" value={canTradeNowApi ? 'YES' : 'NO'} />
-        </div>
-
-        <div className="metric-grid three" style={{ marginTop: 12 }}>
-          <MiniMetric label="Signal Strength" value={primarySignal?.strength ?? 'low'} />
-          <MiniMetric label="Execution Edge" value={executionEdge} />
-          <MiniMetric label="Market Mode" value={state.structure} />
-        </div>
-
-        <div
-          className="metric"
-          style={{
-            marginTop: 12,
-            border: `1px solid ${
-              readinessScore >= 70
-                ? 'rgba(25,195,125,.24)'
-                : readinessScore >= 50
-                ? 'rgba(245,185,66,.24)'
-                : 'rgba(255,93,93,.22)'
-            }`,
-            background:
-              readinessScore >= 70
-                ? 'rgba(25,195,125,.08)'
-                : readinessScore >= 50
-                ? 'rgba(245,185,66,.08)'
-                : 'rgba(255,93,93,.07)',
-          }}
-        >
-          <div className="label" style={{ marginBottom: 8 }}>Operator Read</div>
-          <div className="value" style={{ fontSize: 16, lineHeight: 1.45 }}>
-            {executionComment}
-          </div>
-        </div>
-      </div>
-
-      <div className="hero">
-        <div className="card">
-          <div className="space-between">
-            <h2 style={{ margin: 0 }}>Live Price</h2>
-            <StatusDelta change={state.change24h} />
-          </div>
-
-          <div className="big-price">${fmt(state.price, 2)}</div>
-
-          <div className="metric-grid four" style={{ marginTop: 16 }}>
-            <Metric label="24H High" value={`$${fmt(state.high24h, 2)}`} />
-            <Metric label="24H Low" value={`$${fmt(state.low24h, 2)}`} />
-            <Metric label="24H Volume" value={fmt(state.volume24h, 0)} />
-            <Metric label="Updated" value={mode === 'loading' ? 'Loading...' : state.updatedAt} />
-          </div>
-        </div>
-
-        <div className="card">
-          <div className="space-between">
-            <h2 style={{ margin: 0 }}>Bias</h2>
-            <span className={`badge ${state.bias}`}>{state.bias.toUpperCase()}</span>
-          </div>
-
-          <div className="metric-grid two" style={{ marginTop: 16 }}>
-            <Metric label="Confidence" value={state.confidence} />
-            <Metric label="Structure" value={state.structure} />
-            <Metric label="Trend State" value={state.trendState} />
-            <Metric label="Bias Flip" value={`$${fmt(state.biasFlipLevel, 0)}`} />
-          </div>
-
-          <div className="metric" style={{ marginTop: 12 }}>
-            <div className="value">
-              Bias flips if price invalidates current structure and retakes the other side of EMA50
-              with follow-through.
-            </div>
-          </div>
-        </div>
-      </div>
-
-
-      <div
-        className="grid section"
-        style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}
-      >
-        <div className="card">
-          <h2 style={{ marginTop: 0 }}>Execution Summary</h2>
-          <div className="metric-grid two" style={{ marginTop: 16 }}>
-            <Metric label="Market Bias" value={state.bias.toUpperCase()} />
-            <Metric
-              label="Best Action"
-              value={
-                state.execution.longTone === 'good'
-                  ? 'Look for Long'
-                  : state.execution.shortTone === 'good'
-                  ? 'Look for Short'
-                  : 'Wait / No Clean Setup'
-              }
-            />
-            <Metric
-              label="Long Zone"
-              value={`${fmt(state.longEntry[0], 0)} - ${fmt(state.longEntry[1], 0)}`}
-            />
-            <Metric
-              label="Short Zone"
-              value={`${fmt(state.shortEntry[0], 0)} - ${fmt(state.shortEntry[1], 0)}`}
-            />
-            <Metric
-              label="Risk Mode"
-              value={
-                state.execution.longRiskState === 'high-risk' ||
-                state.execution.shortRiskState === 'high-risk'
-                  ? 'High Risk'
-                  : 'Controlled'
-              }
-            />
-            <Metric
-              label="Trade Type"
-              value={
-                primarySignal?.type === 'confirmed-long' ||
-                primarySignal?.type === 'confirmed-short'
-                  ? 'Confirmation Entry'
-                  : primarySignal?.type === 'aggressive-long' ||
-                    primarySignal?.type === 'aggressive-short'
-                  ? 'Aggressive Entry'
-                  : 'Patience / Wait'
-              }
-            />
-            <Metric label="Confidence" value={state.confidence} />
-            <Metric label="Trend State" value={state.trendState} />
-          </div>
-
-          <div className="metric" style={{ marginTop: 12 }}>
-            <div className="label">Operator Note</div>
-            <div className="value">
-              {state.bias === 'bullish'
-                ? 'Prefer longs on pullback and confirmation. Avoid chasing into resistance.'
-                : state.bias === 'bearish'
-                ? 'Prefer shorts on rejection and weakness. Avoid forcing longs into pressure.'
-                : 'Market is mixed. Best edge comes from patience and confirmation.'}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {primarySignal ? (
-        <div className="card section" style={{ padding: 18 }}>
-          <div className="space-between" style={{ alignItems: 'flex-start', gap: 16 }}>
-            <div>
+            <div style={cardStyle()}>
               <div
-                className="small"
                 style={{
-                  color: 'var(--neutral)',
-                  textTransform: 'uppercase',
-                  letterSpacing: '.18em',
+                  marginBottom: 16,
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  gap: 12,
+                  flexWrap: "wrap",
                 }}
               >
-                Primary live signal
+                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#fff" }}>Environment Scores</h3>
+                <span style={{ fontSize: 12, color: "rgba(255,255,255,0.42)" }}>Regime-aware filter</span>
               </div>
-              <div style={{ fontSize: 24, fontWeight: 800, marginTop: 6 }}>
-                {primarySignal.title}
-              </div>
-              <div className="muted" style={{ marginTop: 8 }}>
-                {primarySignal.note}
+
+              <div style={{ display: "grid", gap: 14 }}>
+                <ScoreBar label="Bull Score" value={result.bullScore} />
+                <ScoreBar label="Bear Score" value={result.bearScore} />
+                <ScoreBar label="Range Score" value={result.rangeScore} />
+                <ScoreBar label="Breakout Score" value={result.breakoutScore} />
               </div>
             </div>
 
-            <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-              <SignalTypeBadge type={primarySignal.type} />
-              <StrengthBadge strength={primarySignal.strength} />
-              <span className={`badge ${primarySignal.direction}`}>{primarySignal.direction}</span>
+            <div style={cardStyle()}>
+              <div
+                style={{
+                  marginBottom: 16,
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  gap: 12,
+                  flexWrap: "wrap",
+                }}
+              >
+                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#fff" }}>Input Snapshot</h3>
+                <span style={{ fontSize: 12, color: "rgba(255,255,255,0.42)" }}>
+                  {data?.isLive ? "Regime input values" : "Fallback values"}
+                </span>
+              </div>
+
+              <div
+                style={{
+                  display: "grid",
+                  gap: 12,
+                  gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+                }}
+              >
+                <InputCell>Price: {input?.price ?? "-"}</InputCell>
+                <InputCell>RSI: {input?.rsi ?? "-"}</InputCell>
+                <InputCell>EMA20: {input?.ema20 ?? "-"}</InputCell>
+                <InputCell>EMA50: {input?.ema50 ?? "-"}</InputCell>
+                <InputCell>EMA200: {input?.ema200 ?? "-"}</InputCell>
+                <InputCell>ATR %: {input?.atrPercent ?? "-"}</InputCell>
+                <InputCell>Volume Ratio: {input?.volumeRatio ?? "-"}</InputCell>
+                <InputCell>Trend Strength: {input?.trendStrength ?? "-"}</InputCell>
+              </div>
             </div>
           </div>
 
-          <div className="metric-grid four" style={{ marginTop: 16 }}>
-            <Metric label="Trigger" value={primarySignal.trigger} />
-            <Metric label="Trend State" value={state.trendState} />
-            <Metric label="Confidence" value={state.confidence} />
-            <Metric label="Risk" value={primarySignal.risk} />
+          <div
+            style={{
+              display: "grid",
+              gap: 16,
+              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+            }}
+          >
+            <div style={cardStyle()}>
+              <p style={labelStyle()}>Trade Gate</p>
+              <Badge tone={tradeGate.status === "TRADE ALLOWED" ? "green" : tradeGate.status === "TRADE FILTERED" ? "red" : "yellow"}>
+                {tradeGate.status}
+              </Badge>
+              <p style={{ margin: "14px 0 6px 0", fontSize: 14, color: "rgba(255,255,255,0.82)" }}>
+                {tradeGate.reason}
+              </p>
+              <p style={{ margin: 0, fontSize: 13, color: "rgba(255,255,255,0.62)" }}>
+                Score: {tradeGate.score}
+              </p>
+            </div>
+
+            <ListPanel
+              title="What Confirms This Regime"
+              badge="CONFIRMS"
+              tone="green"
+              items={result.confirms}
+            />
+
+            <ListPanel
+              title="What Invalidates This Regime"
+              badge="INVALIDATES"
+              tone="red"
+              items={result.invalidates}
+            />
           </div>
         </div>
-      ) : null}
-
-      <div
-        className="grid section"
-        style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}
-      >
-        <ExecutionCardV2
-          title="Long Execution"
-          score={longEdge}
-          preferred={dominantSide === 'LONG'}
-          reasons={longReasons}
-          note={
-            dominantSide === 'LONG'
-              ? 'Best directional edge currently favors longs.'
-              : 'Long side is not dominant right now.'
-          }
-          tone={longEdge >= 70 ? 'good' : longEdge >= 55 ? 'warning' : 'bad'}
-        />
-        <ExecutionCardV2
-          title="Short Execution"
-          score={shortEdge}
-          preferred={dominantSide === 'SHORT'}
-          reasons={shortReasons}
-          note={
-            dominantSide === 'SHORT'
-              ? 'Best directional edge currently favors shorts.'
-              : 'Short side is not dominant right now.'
-          }
-          tone={shortEdge >= 70 ? 'good' : shortEdge >= 55 ? 'warning' : 'bad'}
-        />
-      </div>
-
-      <div
-        className="grid section"
-        style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))' }}
-      >
-        <SetupExplainCard
-          title="Why This Setup?"
-          direction={dominantSide}
-          whyItems={dominantSide === 'SHORT' ? whyShort : whyLong}
-          confirmationItems={dominantSide === 'SHORT' ? shortConfirmations : longConfirmations}
-          invalidationItems={dominantSide === 'SHORT' ? shortInvalidations : longInvalidations}
-          avoidTradeReason={avoidTradeReason}
-        />
-      </div>
-
-      <div className="tabbar">
-        <button
-          className={`primary-btn ${tab === 'overview' ? 'active' : ''}`}
-          onClick={() => setTab('overview')}
-        >
-          Overview
-        </button>
-        <button
-          className={`primary-btn ${tab === 'signals' ? 'active' : ''}`}
-          onClick={() => setTab('signals')}
-        >
-          Live Signals
-        </button>
-        <button
-          className={`primary-btn ${tab === 'calendar' ? 'active' : ''}`}
-          onClick={() => setTab('calendar')}
-        >
-          April News
-        </button>
-      </div>
-
-      {tab === 'overview' && (
-        <>
-          <div className="card section">
-            <h2 style={{ marginTop: 0 }}>Chart</h2>
-            <CandlestickChart
-              candles={visibleCandles}
-              supports={state.supports}
-              resistances={state.resistances}
-              longEntry={state.longEntry}
-              shortEntry={state.shortEntry}
-              longStop={state.longStop}
-              shortStop={state.shortStop}
-              longTargets={state.longTargets}
-              shortTargets={state.shortTargets}
-            />
-          </div>
-
-          <div
-            className="grid section"
-            style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))' }}
-          >
-            <div className="card">
-              <h2 style={{ marginTop: 0 }}>Indicators</h2>
-              <div className="metric-grid four">
-                <Metric label="RSI" value={fmt(state.rsi, 1)} />
-                <Metric label="EMA 21" value={`$${fmt(state.ema21, 0)}`} />
-                <Metric label="EMA 50" value={`$${fmt(state.ema50, 0)}`} />
-                <Metric label="EMA 200" value={`$${fmt(state.ema200, 0)}`} />
-              </div>
-              <div className="metric" style={{ marginTop: 12 }}>
-                <div className="value">
-                  MACD state: {state.macdState}. Volume profile is an approximation from candle
-                  data, not true exchange-level orderflow.
-                </div>
-              </div>
-            </div>
-
-            <div className="card">
-              <h2 style={{ marginTop: 0 }}>Correlation Context</h2>
-              <div className="metric-grid three">
-                <Metric label="DXY" value={state.dxy} />
-                <Metric label="SPY" value={state.spy} />
-                <Metric label="ETH/BTC" value={state.ethbtc} />
-              </div>
-            </div>
-          </div>
-
-          <div
-            className="grid section"
-            style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))' }}
-          >
-            <ScenarioCard
-              title="Long Scenario"
-              direction="bullish"
-              entry={`${fmt(state.longEntry[0], 0)} - ${fmt(state.longEntry[1], 0)}`}
-              stop={fmt(state.longStop, 0)}
-              targets={state.longTargets.map((x) => fmt(x, 0))}
-              rr={rrLong}
-              invalidation={`4H close below ${fmt(state.longStop, 0)}`}
-            />
-            <ScenarioCard
-              title="Short Scenario"
-              direction="bearish"
-              entry={`${fmt(state.shortEntry[0], 0)} - ${fmt(state.shortEntry[1], 0)}`}
-              stop={fmt(state.shortStop, 0)}
-              targets={state.shortTargets.map((x) => fmt(x, 0))}
-              rr={rrShort}
-              invalidation={`4H close above ${fmt(state.shortStop, 0)}`}
-            />
-          </div>
-        </>
       )}
+    </section>
+  );
+}
 
-      {tab === 'signals' && (
-        <div
-          className="grid section"
-          style={{ gridTemplateColumns: 'minmax(320px, 0.95fr) minmax(340px, 1.05fr)' }}
+
+function PositionSizingPanel({ data }: { data: RegimeResponse | null }) {
+  const [accountSize, setAccountSize] = useState(1000);
+  const [riskPreset, setRiskPreset] = useState<"conservative" | "balanced" | "aggressive">("balanced");
+  const [riskPercent, setRiskPercent] = useState(0.5);
+  const [entryPrice, setEntryPrice] = useState<number>(0);
+  const [stopPrice, setStopPrice] = useState<number>(0);
+
+  useEffect(() => {
+    if (!data?.input?.price) return;
+    const price = Number(data.input.price);
+    setEntryPrice(Math.round(price));
+    const fallbackStop =
+      data.result?.directionBias === "BEARISH"
+        ? Math.round(price * 1.01)
+        : Math.round(price * 0.99);
+    setStopPrice(fallbackStop);
+  }, [data?.input?.price, data?.result?.directionBias]);
+
+  const tradeGate = data?.tradeGate ?? deriveTradeGate(data?.result);
+
+  const presetBase =
+    riskPreset === "conservative" ? 0.35 : riskPreset === "aggressive" ? 1.0 : 0.5;
+
+  const recommendedRisk =
+    tradeGate.status === "TRADE FILTERED"
+      ? 0
+      : tradeGate.status === "WAIT FOR CONFIRMATION"
+      ? Math.min(presetBase, 0.35)
+      : presetBase;
+
+  useEffect(() => {
+    setRiskPercent(recommendedRisk);
+  }, [recommendedRisk]);
+
+  const riskAmount = accountSize * (riskPercent / 100);
+  const stopDistance = Math.abs(entryPrice - stopPrice);
+  const sizeBtc = stopDistance > 0 ? riskAmount / stopDistance : 0;
+  const positionUsd = sizeBtc * entryPrice;
+
+  let riskMode = "Normal";
+  if (tradeGate.status === "TRADE FILTERED") riskMode = "Stand down";
+  else if (data?.tradeGate?.status === "WAIT FOR CONFIRMATION") riskMode = "Reduced";
+  else if (data?.result?.tradeCondition === "FAVORABLE") riskMode = "Allowed";
+
+  return (
+    <section
+      style={{
+        width: "100%",
+        borderRadius: 28,
+        border: "1px solid rgba(255,255,255,0.10)",
+        background:
+          "linear-gradient(135deg, rgba(11,18,32,0.98) 0%, rgba(11,16,32,0.98) 48%, rgba(5,7,13,0.98) 100%)",
+        padding: 22,
+        boxShadow: "0 20px 80px rgba(0,0,0,0.35)",
+        color: "#fff",
+      }}
+    >
+      <div
+        style={{
+          marginBottom: 24,
+          display: "flex",
+          flexWrap: "wrap",
+          gap: 16,
+          alignItems: "center",
+          justifyContent: "space-between",
+        }}
+      >
+        <div>
+          <p
+            style={{
+              margin: "0 0 8px 0",
+              fontSize: 11,
+              textTransform: "uppercase",
+              letterSpacing: "0.22em",
+              color: "rgba(103,232,249,0.70)",
+            }}
+          >
+            Phase 6.6
+          </p>
+          <h2 style={{ margin: 0, fontSize: 34, lineHeight: 1.1, fontWeight: 800, color: "#fff" }}>
+            Execution Plan + Risk Presets
+          </h2>
+          <p style={{ margin: "10px 0 0 0", fontSize: 15, color: "rgba(255,255,255,0.64)" }}>
+            Sizing now includes a simple execution plan for scale-out and stop management.
+          </p>
+        </div>
+
+        <Badge tone={riskMode === "Stand down" ? "red" : riskMode === "Reduced" ? "yellow" : "green"}>
+          {riskMode}
+        </Badge>
+      </div>
+
+      <div
+        style={{
+          display: "grid",
+          gap: 16,
+          gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+          marginBottom: 18,
+        }}
+      >
+        <div style={cardStyle()}>
+          <p style={labelStyle()}>Risk Preset</p>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {(["conservative", "balanced", "aggressive"] as const).map((preset) => (
+              <button
+                key={preset}
+                onClick={() => setRiskPreset(preset)}
+                style={{
+                  borderRadius: 12,
+                  border: riskPreset === preset ? "1px solid rgba(34,211,238,0.35)" : "1px solid rgba(255,255,255,0.10)",
+                  background: riskPreset === preset ? "rgba(34,211,238,0.10)" : "rgba(0,0,0,0.20)",
+                  color: "#fff",
+                  padding: "10px 12px",
+                  fontSize: 13,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                }}
+              >
+                {preset.toUpperCase()}
+              </button>
+            ))}
+          </div>
+          <p style={{ margin: "10px 0 0 0", fontSize: 12, color: "rgba(255,255,255,0.60)" }}>
+            Recommended risk: {recommendedRisk.toFixed(2)}%
+          </p>
+        </div>
+
+        <div style={cardStyle()}>
+          <p style={labelStyle()}>Account Size ($)</p>
+          <input
+            type="number"
+            value={accountSize}
+            onChange={(e) => setAccountSize(Number(e.target.value || 0))}
+            style={{ width: "100%", borderRadius: 12, padding: 12, border: "1px solid rgba(255,255,255,0.12)", background: "rgba(0,0,0,0.2)", color: "#fff" }}
+          />
+        </div>
+        <div style={cardStyle()}>
+          <p style={labelStyle()}>Risk %</p>
+          <input
+            type="number"
+            step="0.1"
+            value={riskPercent}
+            onChange={(e) => setRiskPercent(Number(e.target.value || 0))}
+            style={{ width: "100%", borderRadius: 12, padding: 12, border: "1px solid rgba(255,255,255,0.12)", background: "rgba(0,0,0,0.2)", color: "#fff" }}
+          />
+        </div>
+        <div style={cardStyle()}>
+          <p style={labelStyle()}>Entry Price</p>
+          <input
+            type="number"
+            value={entryPrice}
+            onChange={(e) => setEntryPrice(Number(e.target.value || 0))}
+            style={{ width: "100%", borderRadius: 12, padding: 12, border: "1px solid rgba(255,255,255,0.12)", background: "rgba(0,0,0,0.2)", color: "#fff" }}
+          />
+        </div>
+        <div style={cardStyle()}>
+          <p style={labelStyle()}>Stop Price</p>
+          <input
+            type="number"
+            value={stopPrice}
+            onChange={(e) => setStopPrice(Number(e.target.value || 0))}
+            style={{ width: "100%", borderRadius: 12, padding: 12, border: "1px solid rgba(255,255,255,0.12)", background: "rgba(0,0,0,0.2)", color: "#fff" }}
+          />
+        </div>
+      </div>
+
+      <div
+        style={{
+          display: "grid",
+          gap: 16,
+          gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+        }}
+      >
+        <MetricCard label="Risk Amount" value={`$${riskAmount.toFixed(2)}`} tone="yellow" />
+        <MetricCard label="Stop Distance" value={`$${stopDistance.toFixed(2)}`} tone="neutral" />
+        <MetricCard label="Position Size (BTC)" value={sizeBtc ? sizeBtc.toFixed(4) : "0.0000"} tone="blue" />
+        <MetricCard label="Position Size ($)" value={`$${positionUsd.toFixed(2)}`} tone="green" />
+      </div>
+
+      <div
+        style={{
+          display: "grid",
+          gap: 16,
+          gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+          marginTop: 18,
+        }}
+      >
+        <MetricCard label="Trade Gate Score" value={String(tradeGate.score)} tone={tradeGate.status === "TRADE ALLOWED" ? "green" : tradeGate.status === "TRADE FILTERED" ? "red" : "yellow"} />
+        <MetricCard label="Risk Mode" value={riskMode} tone={riskMode === "Allowed" || riskMode === "Normal" ? "green" : riskMode === "Reduced" ? "yellow" : "red"} />
+        <MetricCard label="Preset" value={riskPreset.toUpperCase()} tone="neutral" />
+        <MetricCard label="Recommended Risk %" value={`${recommendedRisk.toFixed(2)}%`} tone="blue" />
+      </div>
+
+      <div style={{ ...cardStyle({ marginTop: 18, background: "rgba(34,211,238,0.06)", border: "1px solid rgba(34,211,238,0.12)" }) }}>
+        <p
+          style={{
+            margin: 0,
+            fontSize: 11,
+            textTransform: "uppercase",
+            letterSpacing: "0.18em",
+            color: "rgba(103,232,249,0.66)",
+          }}
         >
-          <div className="card">
-            <div className="space-between" style={{ alignItems: 'center' }}>
-              <h2 style={{ marginTop: 0, marginBottom: 0 }}>Pro Signal Board</h2>
-              <div className="row" style={{ gap: 8 }}>
-                <span className={`badge ${state.bias}`}>{state.bias}</span>
-                <span className="badge">{state.trendState}</span>
-              </div>
-            </div>
+          Sizing Guidance
+        </p>
+        <p style={{ margin: "12px 0 0 0", fontSize: 18, fontWeight: 700, color: "#fff" }}>
+          {tradeGate.status === "TRADE FILTERED"
+            ? "Trade is filtered. Size should stay at zero."
+            : data?.tradeGate?.status === "WAIT FOR CONFIRMATION"
+            ? "Setup is not fully ready. Consider smaller size or wait."
+            : "Conditions are good enough to size normally if entry confirms."}
+        </p>
+      </div>
+    </section>
+  );
+}
 
-            <div className="grid" style={{ marginTop: 14, gap: 12 }}>
-              {state.signals.map((signal, index) => (
+
+
+
+function ExecutionPlanPanel({ data }: { data: RegimeResponse | null }) {
+  const [entryPrice, setEntryPrice] = useState<number>(0);
+  const [stopPrice, setStopPrice] = useState<number>(0);
+  const [tp1, setTp1] = useState<number>(0);
+  const [tp2, setTp2] = useState<number>(0);
+  const [tp3, setTp3] = useState<number>(0);
+
+  useEffect(() => {
+    if (!data?.input?.price) return;
+    const price = Number(data.input.price);
+    const bullish = data?.result?.directionBias !== "BEARISH";
+    const defaultStop = bullish ? price * 0.99 : price * 1.01;
+    const defaultTp1 = bullish ? price * 1.01 : price * 0.99;
+    const defaultTp2 = bullish ? price * 1.02 : price * 0.98;
+    const defaultTp3 = bullish ? price * 1.03 : price * 0.97;
+
+    setEntryPrice(Math.round(price));
+    setStopPrice(Math.round(defaultStop));
+    setTp1(Math.round(defaultTp1));
+    setTp2(Math.round(defaultTp2));
+    setTp3(Math.round(defaultTp3));
+  }, [data?.input?.price, data?.result?.directionBias]);
+
+  const risk = Math.abs(entryPrice - stopPrice);
+  const reward1 = Math.abs(tp1 - entryPrice);
+  const reward2 = Math.abs(tp2 - entryPrice);
+  const reward3 = Math.abs(tp3 - entryPrice);
+
+  const rr1 = risk > 0 ? reward1 / risk : 0;
+  const rr2 = risk > 0 ? reward2 / risk : 0;
+  const rr3 = risk > 0 ? reward3 / risk : 0;
+
+  const stopPlan =
+    rr1 >= 1
+      ? "After TP1, move stop to breakeven."
+      : "Keep original stop until structure confirms.";
+
+  const scalingPlan =
+    rr2 >= 2
+      ? "Suggested scale-out: 40% at TP1, 35% at TP2, 25% runner."
+      : "Suggested scale-out: 50% at TP1, 30% at TP2, 20% runner.";
+
+  return (
+    <section
+      style={{
+        width: "100%",
+        borderRadius: 28,
+        border: "1px solid rgba(255,255,255,0.10)",
+        background:
+          "linear-gradient(135deg, rgba(11,18,32,0.98) 0%, rgba(11,16,32,0.98) 48%, rgba(5,7,13,0.98) 100%)",
+        padding: 22,
+        boxShadow: "0 20px 80px rgba(0,0,0,0.35)",
+        color: "#fff",
+      }}
+    >
+      <div
+        style={{
+          marginBottom: 24,
+          display: "flex",
+          flexWrap: "wrap",
+          gap: 16,
+          alignItems: "center",
+          justifyContent: "space-between",
+        }}
+      >
+        <div>
+          <p
+            style={{
+              margin: "0 0 8px 0",
+              fontSize: 11,
+              textTransform: "uppercase",
+              letterSpacing: "0.22em",
+              color: "rgba(103,232,249,0.70)",
+            }}
+          >
+            Phase 6.6
+          </p>
+          <h2 style={{ margin: 0, fontSize: 34, lineHeight: 1.1, fontWeight: 800, color: "#fff" }}>
+            Execution Plan Engine
+          </h2>
+          <p style={{ margin: "10px 0 0 0", fontSize: 15, color: "rgba(255,255,255,0.64)" }}>
+            Turns your entry, stop, and targets into a simple plan you can actually execute.
+          </p>
+        </div>
+
+        <Badge tone="blue">PLAN BUILDER</Badge>
+      </div>
+
+      <div
+        style={{
+          display: "grid",
+          gap: 16,
+          gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+          marginBottom: 18,
+        }}
+      >
+        <div style={cardStyle()}>
+          <p style={labelStyle()}>Entry</p>
+          <input
+            type="number"
+            value={entryPrice}
+            onChange={(e) => setEntryPrice(Number(e.target.value || 0))}
+            style={{ width: "100%", borderRadius: 12, padding: 12, border: "1px solid rgba(255,255,255,0.12)", background: "rgba(0,0,0,0.2)", color: "#fff" }}
+          />
+        </div>
+        <div style={cardStyle()}>
+          <p style={labelStyle()}>Stop</p>
+          <input
+            type="number"
+            value={stopPrice}
+            onChange={(e) => setStopPrice(Number(e.target.value || 0))}
+            style={{ width: "100%", borderRadius: 12, padding: 12, border: "1px solid rgba(255,255,255,0.12)", background: "rgba(0,0,0,0.2)", color: "#fff" }}
+          />
+        </div>
+        <div style={cardStyle()}>
+          <p style={labelStyle()}>TP1</p>
+          <input
+            type="number"
+            value={tp1}
+            onChange={(e) => setTp1(Number(e.target.value || 0))}
+            style={{ width: "100%", borderRadius: 12, padding: 12, border: "1px solid rgba(255,255,255,0.12)", background: "rgba(0,0,0,0.2)", color: "#fff" }}
+          />
+        </div>
+        <div style={cardStyle()}>
+          <p style={labelStyle()}>TP2</p>
+          <input
+            type="number"
+            value={tp2}
+            onChange={(e) => setTp2(Number(e.target.value || 0))}
+            style={{ width: "100%", borderRadius: 12, padding: 12, border: "1px solid rgba(255,255,255,0.12)", background: "rgba(0,0,0,0.2)", color: "#fff" }}
+          />
+        </div>
+        <div style={cardStyle()}>
+          <p style={labelStyle()}>TP3</p>
+          <input
+            type="number"
+            value={tp3}
+            onChange={(e) => setTp3(Number(e.target.value || 0))}
+            style={{ width: "100%", borderRadius: 12, padding: 12, border: "1px solid rgba(255,255,255,0.12)", background: "rgba(0,0,0,0.2)", color: "#fff" }}
+          />
+        </div>
+      </div>
+
+      <div
+        style={{
+          display: "grid",
+          gap: 16,
+          gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+        }}
+      >
+        <MetricCard label="R:R to TP1" value={rr1 ? rr1.toFixed(2) : "0.00"} tone={rr1 >= 1 ? "green" : "yellow"} />
+        <MetricCard label="R:R to TP2" value={rr2 ? rr2.toFixed(2) : "0.00"} tone={rr2 >= 2 ? "green" : "yellow"} />
+        <MetricCard label="R:R to TP3" value={rr3 ? rr3.toFixed(2) : "0.00"} tone={rr3 >= 3 ? "green" : "blue"} />
+        <MetricCard label="Risk Distance" value={`$${risk.toFixed(2)}`} tone="red" />
+      </div>
+
+      <div style={{ ...cardStyle({ marginTop: 18, background: "rgba(34,211,238,0.06)", border: "1px solid rgba(34,211,238,0.12)" }) }}>
+        <p
+          style={{
+            margin: 0,
+            fontSize: 11,
+            textTransform: "uppercase",
+            letterSpacing: "0.18em",
+            color: "rgba(103,232,249,0.66)",
+          }}
+        >
+          Management Plan
+        </p>
+        <p style={{ margin: "12px 0 0 0", fontSize: 18, fontWeight: 700, color: "#fff" }}>
+          {scalingPlan}
+        </p>
+        <p style={{ margin: "10px 0 0 0", fontSize: 14, color: "rgba(255,255,255,0.72)" }}>
+          {stopPlan}
+        </p>
+      </div>
+    </section>
+  );
+}
+
+
+/* ------------------------------------------------------------------ */
+/* Phase 6.7 — Trade Journal + Outcome Tracker                         */
+/* Additive. localStorage only. No backend.                            */
+/* Types are declared locally here to keep this panel self-contained   */
+/* and to avoid any import-path risk with @/lib/market.                */
+/* ------------------------------------------------------------------ */
+
+type JournalResult = "win" | "loss" | "break-even" | "skipped";
+type JournalSide = "long" | "short";
+type JournalSetupType =
+  | "trend-continuation"
+  | "breakout"
+  | "pullback"
+  | "reversal"
+  | "range"
+  | "liquidity-sweep";
+type JournalMistakeTag =
+  | "none"
+  | "late-entry"
+  | "early-entry"
+  | "moved-stop"
+  | "ignored-gate"
+  | "oversized"
+  | "revenge-trade"
+  | "no-confirmation"
+  | "poor-tp";
+
+type TradeJournalEntry = {
+  id: string;
+  createdAt: string; // ISO UTC
+  side: JournalSide;
+  entry: number | null;
+  stop: number | null;
+  tp: number | null;
+  result: JournalResult;
+  setupType: JournalSetupType;
+  regimeAtEntry: string;
+  tradeGateAtEntry: string;
+  riskPresetUsed: string;
+  notes: string;
+  mistakeTag: JournalMistakeTag;
+};
+
+const JOURNAL_STORAGE_KEY = "btc_dashboard_trade_journal_v1";
+
+function formatJournalDateUTC(iso: string): string {
+  try {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return "—";
+    const y = d.getUTCFullYear();
+    const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+    const day = String(d.getUTCDate()).padStart(2, "0");
+    const hh = String(d.getUTCHours()).padStart(2, "0");
+    const mm = String(d.getUTCMinutes()).padStart(2, "0");
+    return `${y}-${m}-${day} ${hh}:${mm} UTC`;
+  } catch {
+    return "—";
+  }
+}
+
+function makeJournalId(): string {
+  return `tj_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function journalInputStyle(): React.CSSProperties {
+  return {
+    width: "100%",
+    borderRadius: 12,
+    padding: 12,
+    border: "1px solid rgba(255,255,255,0.12)",
+    background: "rgba(0,0,0,0.2)",
+    color: "#fff",
+    fontSize: 14,
+  };
+}
+
+const SETUP_OPTIONS: JournalSetupType[] = [
+  "trend-continuation",
+  "breakout",
+  "pullback",
+  "reversal",
+  "range",
+  "liquidity-sweep",
+];
+
+const MISTAKE_OPTIONS: JournalMistakeTag[] = [
+  "none",
+  "late-entry",
+  "early-entry",
+  "moved-stop",
+  "ignored-gate",
+  "oversized",
+  "revenge-trade",
+  "no-confirmation",
+  "poor-tp",
+];
+
+const RESULT_OPTIONS: JournalResult[] = ["win", "loss", "break-even", "skipped"];
+
+function TradeJournalPanel({ data }: { data: RegimeResponse | null }) {
+  // IMPORTANT: start with empty list. Load from localStorage only inside
+  // useEffect on the client, so there's no hydration mismatch.
+  const [entries, setEntries] = useState<TradeJournalEntry[]>([]);
+  const [hydrated, setHydrated] = useState(false);
+
+  // form state
+  const [side, setSide] = useState<JournalSide>("long");
+  const [entry, setEntry] = useState<string>("");
+  const [stop, setStop] = useState<string>("");
+  const [tp, setTp] = useState<string>("");
+  const [result, setResult] = useState<JournalResult>("win");
+  const [setupType, setSetupType] = useState<JournalSetupType>("trend-continuation");
+  const [notes, setNotes] = useState<string>("");
+  const [mistakeTag, setMistakeTag] = useState<JournalMistakeTag>("none");
+  const [riskPresetUsed, setRiskPresetUsed] = useState<string>("balanced");
+
+  // Load from localStorage after mount.
+  useEffect(() => {
+    try {
+      const raw = typeof window !== "undefined" ? window.localStorage.getItem(JOURNAL_STORAGE_KEY) : null;
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          setEntries(parsed as TradeJournalEntry[]);
+        }
+      }
+    } catch {
+      // corrupted storage — ignore safely
+    }
+    setHydrated(true);
+  }, []);
+
+  // Persist whenever entries change (after first hydration).
+  useEffect(() => {
+    if (!hydrated) return;
+    try {
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(JOURNAL_STORAGE_KEY, JSON.stringify(entries));
+      }
+    } catch {
+      // quota / privacy mode — ignore safely
+    }
+  }, [entries, hydrated]);
+
+  // Prefill defaults from live regime data where possible.
+  const regimeAtEntry = data?.result?.regime ?? "UNKNOWN";
+  const tradeGateAtEntry = (data?.tradeGate?.status ?? deriveTradeGate(data?.result).status) as string;
+
+  useEffect(() => {
+    if (!data?.input?.price) return;
+    if (entry === "") {
+      const price = Number(data.input.price);
+      if (Number.isFinite(price)) {
+        setEntry(String(Math.round(price)));
+      }
+    }
+  }, [data?.input?.price, entry]);
+
+  function resetForm() {
+    setSide("long");
+    setEntry("");
+    setStop("");
+    setTp("");
+    setResult("win");
+    setSetupType("trend-continuation");
+    setNotes("");
+    setMistakeTag("none");
+    setRiskPresetUsed("balanced");
+  }
+
+  function parseNumOrNull(v: string): number | null {
+    if (v === "" || v === null || v === undefined) return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  function logTrade() {
+    const newEntry: TradeJournalEntry = {
+      id: makeJournalId(),
+      createdAt: new Date().toISOString(),
+      side,
+      entry: parseNumOrNull(entry),
+      stop: parseNumOrNull(stop),
+      tp: parseNumOrNull(tp),
+      result,
+      setupType,
+      regimeAtEntry,
+      tradeGateAtEntry,
+      riskPresetUsed,
+      notes: notes.trim(),
+      mistakeTag,
+    };
+    setEntries((prev) => [newEntry, ...prev]);
+    resetForm();
+  }
+
+  function deleteEntry(id: string) {
+    setEntries((prev) => prev.filter((e) => e.id !== id));
+  }
+
+  function clearAll() {
+    if (typeof window !== "undefined") {
+      const ok = window.confirm("Clear the entire trade journal? This cannot be undone.");
+      if (!ok) return;
+    }
+    setEntries([]);
+  }
+
+  // Stats
+  const total = entries.length;
+  let wins = 0;
+  let losses = 0;
+  let breakEvens = 0;
+  let skipped = 0;
+  const mistakeCounts: Record<JournalMistakeTag, number> = {
+    "none": 0,
+    "late-entry": 0,
+    "early-entry": 0,
+    "moved-stop": 0,
+    "ignored-gate": 0,
+    "oversized": 0,
+    "revenge-trade": 0,
+    "no-confirmation": 0,
+    "poor-tp": 0,
+  };
+  for (const e of entries) {
+    if (e.result === "win") wins += 1;
+    else if (e.result === "loss") losses += 1;
+    else if (e.result === "break-even") breakEvens += 1;
+    else if (e.result === "skipped") skipped += 1;
+    if (e.mistakeTag in mistakeCounts) mistakeCounts[e.mistakeTag] += 1;
+  }
+  const decisive = wins + losses;
+  const winRate = decisive > 0 ? Math.round((wins / decisive) * 100) : 0;
+
+  let topMistake: JournalMistakeTag | null = null;
+  let topMistakeCount = 0;
+  (Object.keys(mistakeCounts) as JournalMistakeTag[]).forEach((k) => {
+    if (k === "none") return;
+    if (mistakeCounts[k] > topMistakeCount) {
+      topMistakeCount = mistakeCounts[k];
+      topMistake = k;
+    }
+  });
+
+  const formGrid: React.CSSProperties = {
+    display: "grid",
+    gap: 14,
+    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+  };
+
+  return (
+    <section
+      style={{
+        width: "100%",
+        borderRadius: 28,
+        border: "1px solid rgba(255,255,255,0.10)",
+        background:
+          "linear-gradient(135deg, rgba(11,18,32,0.98) 0%, rgba(11,16,32,0.98) 48%, rgba(5,7,13,0.98) 100%)",
+        padding: 22,
+        boxShadow: "0 20px 80px rgba(0,0,0,0.35)",
+        color: "#fff",
+      }}
+    >
+      <div
+        style={{
+          marginBottom: 24,
+          display: "flex",
+          flexWrap: "wrap",
+          gap: 16,
+          alignItems: "center",
+          justifyContent: "space-between",
+        }}
+      >
+        <div>
+          <p
+            style={{
+              margin: "0 0 8px 0",
+              fontSize: 11,
+              textTransform: "uppercase",
+              letterSpacing: "0.22em",
+              color: "rgba(103,232,249,0.70)",
+            }}
+          >
+            Phase 6.7
+          </p>
+          <h2 style={{ margin: 0, fontSize: 34, lineHeight: 1.1, fontWeight: 800, color: "#fff" }}>
+            Trade Journal + Outcome Tracker
+          </h2>
+          <p style={{ margin: "10px 0 0 0", fontSize: 15, color: "rgba(255,255,255,0.64)" }}>
+            Log real trades, review outcomes, and spot repeat mistakes. Stored locally in your browser only.
+          </p>
+        </div>
+
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+          <Badge tone="blue">LOCAL ONLY</Badge>
+          <button
+            onClick={clearAll}
+            style={{
+              borderRadius: 14,
+              border: "1px solid rgba(239,68,68,0.28)",
+              background: "rgba(239,68,68,0.10)",
+              color: "#fca5a5",
+              padding: "10px 14px",
+              fontSize: 13,
+              fontWeight: 700,
+              cursor: "pointer",
+            }}
+          >
+            Clear Journal
+          </button>
+        </div>
+      </div>
+
+      {/* Card 1: Log Trade Form */}
+      <div style={cardStyle({ marginBottom: 18 })}>
+        <div
+          style={{
+            marginBottom: 14,
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: 12,
+            flexWrap: "wrap",
+          }}
+        >
+          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#fff" }}>Log Trade</h3>
+          <span style={{ fontSize: 12, color: "rgba(255,255,255,0.42)" }}>
+            Regime: {regimeAtEntry} · Gate: {tradeGateAtEntry}
+          </span>
+        </div>
+
+        <div style={formGrid}>
+          <div>
+            <p style={labelStyle()}>Side</p>
+            <div style={{ display: "flex", gap: 8 }}>
+              {(["long", "short"] as const).map((s) => (
                 <button
-                  key={`${signal.title}-${index}`}
-                  className="ghost-btn"
-                  onClick={() => setActiveSignal(signal)}
+                  key={s}
+                  onClick={() => setSide(s)}
                   style={{
-                    textAlign: 'left',
+                    flex: 1,
+                    borderRadius: 12,
                     border:
-                      activeSignal?.title === signal.title
-                        ? '1px solid rgba(122,162,255,.45)'
-                        : undefined,
+                      side === s
+                        ? "1px solid rgba(34,211,238,0.35)"
+                        : "1px solid rgba(255,255,255,0.10)",
+                    background: side === s ? "rgba(34,211,238,0.10)" : "rgba(0,0,0,0.20)",
+                    color: "#fff",
+                    padding: "10px 12px",
+                    fontSize: 13,
+                    fontWeight: 700,
+                    cursor: "pointer",
                   }}
                 >
-                  <div className="space-between" style={{ alignItems: 'flex-start', gap: 10 }}>
-                    <div>
-                      <div style={{ fontWeight: 800, fontSize: 16 }}>{signal.title}</div>
-                      <div className="muted" style={{ marginTop: 6 }}>{signal.trigger}</div>
-                    </div>
-
-                    <div
-                      className="row"
-                      style={{ gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}
-                    >
-                      <SignalTypeBadge type={signal.type} />
-                      <StrengthBadge strength={signal.strength} />
-                    </div>
-                  </div>
-
-                  <div
-                    className="metric-grid three"
-                    style={{ marginTop: 12, gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }}
-                  >
-                    <MiniMetric label="Direction" value={signal.direction} />
-                    <MiniMetric label="Trend" value={state.trendState} />
-                    <MiniMetric label="Confidence" value={state.confidence} />
-                  </div>
+                  {s.toUpperCase()}
                 </button>
               ))}
             </div>
           </div>
 
-          <div className="card">
-            <h2 style={{ marginTop: 0 }}>Execution Detail</h2>
-            {activeSignal ? (
-              <div className="grid" style={{ gap: 12 }}>
-                <div className="space-between" style={{ alignItems: 'flex-start', gap: 12 }}>
-                  <div className="row" style={{ gap: 10, alignItems: 'center' }}>
-                    <Activity size={18} color="#7aa2ff" />
-                    <div>
-                      <div style={{ fontSize: 22, fontWeight: 800 }}>{activeSignal.title}</div>
-                      <div className="muted" style={{ marginTop: 4 }}>
-                        Type: {activeSignal.type} · Strength: {activeSignal.strength}
-                      </div>
-                    </div>
-                  </div>
+          <div>
+            <p style={labelStyle()}>Entry</p>
+            <input
+              type="number"
+              value={entry}
+              onChange={(e) => setEntry(e.target.value)}
+              style={journalInputStyle()}
+              placeholder="e.g. 67000"
+            />
+          </div>
 
-                  <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-                    <SignalTypeBadge type={activeSignal.type} />
-                    <StrengthBadge strength={activeSignal.strength} />
-                    <span className={`badge ${activeSignal.direction}`}>{activeSignal.direction}</span>
-                  </div>
-                </div>
+          <div>
+            <p style={labelStyle()}>Stop</p>
+            <input
+              type="number"
+              value={stop}
+              onChange={(e) => setStop(e.target.value)}
+              style={journalInputStyle()}
+              placeholder="e.g. 66500"
+            />
+          </div>
 
-                <div className="metric-grid two">
-                  <Metric label="Trigger" value={activeSignal.trigger} />
-                  <Metric label="Invalidation" value={activeSignal.invalidation} />
-                  <Metric label="Execution note" value={activeSignal.note} />
-                  <Metric label="Risk note" value={activeSignal.risk} />
-                </div>
+          <div>
+            <p style={labelStyle()}>Take Profit</p>
+            <input
+              type="number"
+              value={tp}
+              onChange={(e) => setTp(e.target.value)}
+              style={journalInputStyle()}
+              placeholder="e.g. 68000"
+            />
+          </div>
 
-                <div
-                  className="grid"
-                  style={{
-                    gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-                    gap: 12,
-                  }}
-                >
-                  <TradeExecutionBox
-                    title="Trend State"
-                    value={state.trendState}
-                    tone={
-                      state.trendState === 'uptrend'
-                        ? 'bullish'
-                        : state.trendState === 'downtrend'
-                        ? 'bearish'
-                        : 'neutral'
-                    }
-                  />
-                  <TradeExecutionBox title="Bias" value={state.bias} tone={state.bias} />
-                  <TradeExecutionBox
-                    title="RSI Regime"
-                    value={state.rsi >= 55 ? 'Bullish' : state.rsi <= 45 ? 'Bearish' : 'Neutral'}
-                    tone={state.rsi >= 55 ? 'bullish' : state.rsi <= 45 ? 'bearish' : 'neutral'}
-                  />
-                  <TradeExecutionBox
-                    title="EMA State"
-                    value={
-                      state.ema21 > state.ema50 && state.ema50 > state.ema200
-                        ? 'Bull stack'
-                        : state.ema21 < state.ema50 && state.ema50 < state.ema200
-                        ? 'Bear stack'
-                        : 'Mixed'
-                    }
-                    tone={
-                      state.ema21 > state.ema50 && state.ema50 > state.ema200
-                        ? 'bullish'
-                        : state.ema21 < state.ema50 && state.ema50 < state.ema200
-                        ? 'bearish'
-                        : 'neutral'
-                    }
-                  />
-                </div>
-              </div>
-            ) : (
-              <div className="muted">Choose a signal to inspect.</div>
-            )}
+          <div>
+            <p style={labelStyle()}>Result</p>
+            <select
+              value={result}
+              onChange={(e) => setResult(e.target.value as JournalResult)}
+              style={journalInputStyle()}
+            >
+              {RESULT_OPTIONS.map((r) => (
+                <option key={r} value={r}>
+                  {r}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <p style={labelStyle()}>Setup Type</p>
+            <select
+              value={setupType}
+              onChange={(e) => setSetupType(e.target.value as JournalSetupType)}
+              style={journalInputStyle()}
+            >
+              {SETUP_OPTIONS.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <p style={labelStyle()}>Risk Preset Used</p>
+            <select
+              value={riskPresetUsed}
+              onChange={(e) => setRiskPresetUsed(e.target.value)}
+              style={journalInputStyle()}
+            >
+              <option value="conservative">conservative</option>
+              <option value="balanced">balanced</option>
+              <option value="aggressive">aggressive</option>
+            </select>
+          </div>
+
+          <div>
+            <p style={labelStyle()}>Mistake Tag</p>
+            <select
+              value={mistakeTag}
+              onChange={(e) => setMistakeTag(e.target.value as JournalMistakeTag)}
+              style={journalInputStyle()}
+            >
+              {MISTAKE_OPTIONS.map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+            </select>
           </div>
         </div>
-      )}
 
-      {tab === 'calendar' && (
-        <div className="card section">
-          <div className="row">
-            <CalendarDays size={18} />
-            <h2 style={{ margin: 0 }}>April News Calendar</h2>
-          </div>
+        <div style={{ marginTop: 14 }}>
+          <p style={labelStyle()}>Notes</p>
+          <textarea
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="What worked, what didn't, what to fix next time..."
+            rows={3}
+            style={{
+              ...journalInputStyle(),
+              resize: "vertical",
+              fontFamily: "inherit",
+            }}
+          />
+        </div>
 
-          <div
-            className="grid"
-            style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', marginTop: 12 }}
+        <div style={{ marginTop: 16, display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <button
+            onClick={logTrade}
+            style={{
+              borderRadius: 16,
+              border: "1px solid rgba(16,185,129,0.35)",
+              background: "rgba(16,185,129,0.14)",
+              color: "#86efac",
+              padding: "12px 18px",
+              fontSize: 14,
+              fontWeight: 800,
+              letterSpacing: "0.04em",
+              cursor: "pointer",
+            }}
           >
-            {[
-              ['Apr 3', 'US Payrolls', 'High-impact macro release for rates and risk assets.'],
-              ['Apr 10', 'US CPI', 'Inflation print with direct implications for DXY and crypto risk appetite.'],
-              ['Apr 14', 'US PPI', 'Producer inflation release, useful secondary macro input.'],
-              ['Apr 27–29', 'Bitcoin Conference', 'Event-driven sentiment and headline risk for BTC.'],
-              ['Apr 28–29', 'FOMC Meeting', 'High-impact Fed window. Reduce leverage into the decision.'],
-              ['Weekly', 'Jobless Claims / Treasury auctions', 'Use as secondary volatility checkpoints.'],
-            ].map(([date, title, desc]) => (
-              <div key={title} className="metric">
-                <div className="label" style={{ color: 'var(--neutral)' }}>{date}</div>
-                <div className="value">{title}</div>
-                <div className="muted" style={{ marginTop: 8 }}>{desc}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {errorText ? (
-        <div className="alert section">
-          <div className="row">
-            <ShieldAlert size={18} /> <strong>Live fetch issue</strong>
-          </div>
-          <div className="muted" style={{ marginTop: 8 }}>
-            {errorText}. The dashboard stays usable with fallback data while the hosted API route
-            is fixed.
-          </div>
-        </div>
-      ) : null}
-
-      <div className="card small">
-        <div className="space-between">
-          <div className="row">
-            {mode.startsWith('live') ? (
-              <Wifi size={16} color="#19c37d" />
-            ) : (
-              <WifiOff size={16} color="#9aa4b2" />
-            )}
-            <span>
-              Status:{' '}
-              {mode === 'fallback'
-                ? 'Fallback snapshot'
-                : mode === 'loading'
-                ? 'Loading live...'
-                : mode === 'live-binance'
-                ? 'Live: Binance via hosted server route'
-                : mode === 'live-coingecko'
-                ? 'Live: CoinGecko via hosted server route'
-                : 'Live fetch failed'}
-            </span>
-          </div>
-          <span>Deployment target: Vercel or Netlify</span>
+            + LOG TRADE
+          </button>
+          <button
+            onClick={resetForm}
+            style={{
+              borderRadius: 16,
+              border: "1px solid rgba(255,255,255,0.12)",
+              background: "rgba(0,0,0,0.20)",
+              color: "rgba(255,255,255,0.80)",
+              padding: "12px 18px",
+              fontSize: 14,
+              fontWeight: 700,
+              cursor: "pointer",
+            }}
+          >
+            Reset
+          </button>
         </div>
       </div>
-    </div>
-  );
-}
 
-function CandlestickChart({
-  candles,
-  supports = [],
-  resistances = [],
-  longEntry,
-  shortEntry,
-  longStop,
-  shortStop,
-  longTargets = [],
-  shortTargets = [],
-}: {
-  candles: Candle[];
-  supports?: number[];
-  resistances?: number[];
-  longEntry?: [number, number];
-  shortEntry?: [number, number];
-  longStop?: number;
-  shortStop?: number;
-  longTargets?: number[];
-  shortTargets?: number[];
-}) {
-  const width = 1000;
-  const height = 420;
-  const padLeft = 56;
-  const padRight = 34;
-  const padTop = 20;
-  const padBottom = 28;
-
-  if (!candles.length) {
-    return (
-      <div className="chart-box" style={{ display: 'grid', placeItems: 'center' }}>
-        No chart data
-      </div>
-    );
-  }
-
-  const highs = candles.map((c) => c.high);
-  const lows = candles.map((c) => c.low);
-
-  const levelValues = [
-    ...highs,
-    ...lows,
-    ...supports,
-    ...resistances,
-    ...(longEntry ? [longEntry[0], longEntry[1]] : []),
-    ...(shortEntry ? [shortEntry[0], shortEntry[1]] : []),
-    ...(typeof longStop === 'number' ? [longStop] : []),
-    ...(typeof shortStop === 'number' ? [shortStop] : []),
-    ...longTargets,
-    ...shortTargets,
-  ].filter((n) => Number.isFinite(n));
-
-  const max = Math.max(...levelValues);
-  const min = Math.min(...levelValues);
-  const range = Math.max(max - min, 1);
-
-  const plotW = width - padLeft - padRight;
-  const plotH = height - padTop - padBottom;
-  const stepX = plotW / candles.length;
-  const candleWidth = Math.max(4, stepX * 0.58);
-
-  const y = (price: number) => padTop + ((max - price) / range) * plotH;
-  const axisLevels = Array.from({ length: 5 }, (_, i) => min + (range * i) / 4);
-
-  return (
-    <div className="chart-box" style={{ overflowX: 'auto' }}>
-      <svg viewBox={`0 0 ${width} ${height}`} className="h-full w-full" preserveAspectRatio="none">
-        <rect x="0" y="0" width={width} height={height} fill="transparent" />
-
-        {axisLevels.map((price, i) => {
-          const yy = y(price);
-          return (
-            <g key={i}>
-              <line
-                x1={padLeft}
-                x2={width - padRight}
-                y1={yy}
-                y2={yy}
-                stroke="rgba(255,255,255,0.07)"
-                strokeWidth="1"
-              />
-              <text x="8" y={yy + 4} fontSize="11" fill="#94a3b8">
-                {price.toFixed(0)}
-              </text>
-            </g>
-          );
-        })}
-
-        {supports.map((price, i) => (
-          <LevelLine
-            key={`support-${i}-${price}`}
-            y={y(price)}
-            price={price}
-            color="#19c37d"
-            width={width}
-            padLeft={padLeft}
-            padRight={padRight}
-            dash="6 4"
-          />
-        ))}
-
-        {resistances.map((price, i) => (
-          <LevelLine
-            key={`resistance-${i}-${price}`}
-            y={y(price)}
-            price={price}
-            color="#ff5d5d"
-            width={width}
-            padLeft={padLeft}
-            padRight={padRight}
-            dash="6 4"
-          />
-        ))}
-
-        {longEntry ? (
-          <LevelLine
-            y={y(longEntry[0])}
-            price={longEntry[0]}
-            color="#22c55e"
-            width={width}
-            padLeft={padLeft}
-            padRight={padRight}
-            dash="2 3"
-          />
-        ) : null}
-
-        {shortEntry ? (
-          <LevelLine
-            y={y(shortEntry[0])}
-            price={shortEntry[0]}
-            color="#ef4444"
-            width={width}
-            padLeft={padLeft}
-            padRight={padRight}
-            dash="2 3"
-          />
-        ) : null}
-
-        {typeof longStop === 'number' ? (
-          <LevelLine
-            y={y(longStop)}
-            price={longStop}
-            color="#16a34a"
-            width={width}
-            padLeft={padLeft}
-            padRight={padRight}
-            dash="10 4"
-          />
-        ) : null}
-
-        {typeof shortStop === 'number' ? (
-          <LevelLine
-            y={y(shortStop)}
-            price={shortStop}
-            color="#dc2626"
-            width={width}
-            padLeft={padLeft}
-            padRight={padRight}
-            dash="10 4"
-          />
-        ) : null}
-
-        {longTargets.slice(0, 3).map((price, i) => (
-          <LevelLine
-            key={`lt-${i}-${price}`}
-            y={y(price)}
-            price={price}
-            color="#86efac"
-            width={width}
-            padLeft={padLeft}
-            padRight={padRight}
-            dash="3 6"
-          />
-        ))}
-
-        {shortTargets.slice(0, 3).map((price, i) => (
-          <LevelLine
-            key={`st-${i}-${price}`}
-            y={y(price)}
-            price={price}
-            color="#fca5a5"
-            width={width}
-            padLeft={padLeft}
-            padRight={padRight}
-            dash="3 6"
-          />
-        ))}
-
-        {longEntry ? (
-          <ChartLabel
-            x={padLeft + 8}
-            y={y(longEntry[0]) - 8}
-            text={`Long Entry ${longEntry[0].toFixed(0)}`}
-            color="#22c55e"
-          />
-        ) : null}
-
-        {typeof longStop === 'number' ? (
-          <ChartLabel
-            x={padLeft + 8}
-            y={y(longStop) - 8}
-            text={`Long SL ${longStop.toFixed(0)}`}
-            color="#16a34a"
-          />
-        ) : null}
-
-        {longTargets.slice(0, 3).map((price, i) => (
-          <ChartLabel
-            key={`long-label-${i}-${price}`}
-            x={padLeft + 8}
-            y={y(price) - 8}
-            text={`L TP${i + 1} ${price.toFixed(0)}`}
-            color="#86efac"
-          />
-        ))}
-
-        {shortEntry ? (
-          <ChartLabel
-            x={width - 220}
-            y={y(shortEntry[0]) - 8}
-            text={`Short Entry ${shortEntry[0].toFixed(0)}`}
-            color="#ef4444"
-          />
-        ) : null}
-
-        {typeof shortStop === 'number' ? (
-          <ChartLabel
-            x={width - 220}
-            y={y(shortStop) - 8}
-            text={`Short SL ${shortStop.toFixed(0)}`}
-            color="#dc2626"
-          />
-        ) : null}
-
-        {shortTargets.slice(0, 3).map((price, i) => (
-          <ChartLabel
-            key={`short-label-${i}-${price}`}
-            x={width - 220}
-            y={y(price) - 8}
-            text={`S TP${i + 1} ${price.toFixed(0)}`}
-            color="#fca5a5"
-          />
-        ))}
-
-        {candles.map((candle, i) => {
-          const x = padLeft + i * stepX + stepX / 2;
-          const openY = y(candle.open);
-          const closeY = y(candle.close);
-          const highY = y(candle.high);
-          const lowY = y(candle.low);
-
-          const bullish = candle.close >= candle.open;
-          const color = bullish ? '#19c37d' : '#ff5d5d';
-          const bodyTop = Math.min(openY, closeY);
-          const bodyHeight = Math.max(Math.abs(closeY - openY), 2);
-
-          return (
-            <g key={candle.time}>
-              <line x1={x} x2={x} y1={highY} y2={lowY} stroke={color} strokeWidth="1.3" />
-              <rect
-                x={x - candleWidth / 2}
-                y={bodyTop}
-                width={candleWidth}
-                height={bodyHeight}
-                rx="1.4"
-                fill={color}
-                opacity="0.95"
-              />
-            </g>
-          );
-        })}
-
-        {candles
-          .filter((_, i) => i % Math.max(1, Math.floor(candles.length / 6)) === 0)
-          .map((candle) => {
-            const i = candles.findIndex((x) => x.time === candle.time);
-            const x = padLeft + i * stepX + stepX / 2;
-            const label = new Date(candle.time).toLocaleDateString(undefined, {
-              month: 'short',
-              day: 'numeric',
-            });
-
-            return (
-              <text
-                key={`label-${candle.time}`}
-                x={x}
-                y={height - 8}
-                textAnchor="middle"
-                fontSize="10"
-                fill="#94a3b8"
-              >
-                {label}
-              </text>
-            );
-          })}
-      </svg>
-    </div>
-  );
-}
-
-function LevelLine({
-  y,
-  price,
-  color,
-  width,
-  padLeft,
-  padRight,
-  dash,
-}: {
-  y: number;
-  price: number;
-  color: string;
-  width: number;
-  padLeft: number;
-  padRight: number;
-  dash: string;
-}) {
-  return (
-    <g>
-      <line
-        x1={padLeft}
-        x2={width - padRight}
-        y1={y}
-        y2={y}
-        stroke={color}
-        strokeDasharray={dash}
-        strokeWidth="1.15"
-        opacity="0.85"
-      />
-      <text x={width - padRight - 4} y={y - 4} textAnchor="end" fontSize="11" fill={color}>
-        {price.toFixed(0)}
-      </text>
-    </g>
-  );
-}
-
-function Metric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="metric">
-      <div className="label">{label}</div>
-      <div className="value">{value}</div>
-    </div>
-  );
-}
-
-function MiniMetric({ label, value }: { label: string; value: string }) {
-  return (
-    <div
-      style={{
-        border: '1px solid rgba(255,255,255,.08)',
-        background: 'rgba(255,255,255,.03)',
-        borderRadius: 14,
-        padding: '10px 12px',
-      }}
-    >
+      {/* Card 2: Outcome Tracker / Stats */}
       <div
-        className="small"
-        style={{ color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.12em' }}
+        style={{
+          display: "grid",
+          gap: 16,
+          gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+          marginBottom: 18,
+        }}
       >
-        {label}
-      </div>
-      <div style={{ marginTop: 6, fontWeight: 700 }}>{value}</div>
-    </div>
-  );
-}
-
-function TradeExecutionBox({
-  title,
-  value,
-  tone,
-}: {
-  title: string;
-  value: string;
-  tone: 'bullish' | 'bearish' | 'neutral';
-}) {
-  const color =
-    tone === 'bullish'
-      ? 'rgba(25,195,125,.18)'
-      : tone === 'bearish'
-      ? 'rgba(255,93,93,.18)'
-      : 'rgba(122,162,255,.14)';
-
-  const border =
-    tone === 'bullish'
-      ? 'rgba(25,195,125,.28)'
-      : tone === 'bearish'
-      ? 'rgba(255,93,93,.28)'
-      : 'rgba(122,162,255,.25)';
-
-  return (
-    <div
-      style={{
-        background: color,
-        border: `1px solid ${border}`,
-        borderRadius: 16,
-        padding: 14,
-      }}
-    >
-      <div
-        className="small"
-        style={{ color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.12em' }}
-      >
-        {title}
-      </div>
-      <div style={{ marginTop: 8, fontWeight: 800, fontSize: 17 }}>{value}</div>
-    </div>
-  );
-}
-
-function ExecutionCard({
-  title,
-  location,
-  quality,
-  riskState,
-  note,
-  tone,
-}: {
-  title: string;
-  location: ExecutionLocation;
-  quality: number;
-  riskState: string;
-  note: string;
-  tone: ExecutionTone;
-}) {
-  const bg =
-    tone === 'good'
-      ? 'rgba(25,195,125,.12)'
-      : tone === 'neutral'
-      ? 'rgba(122,162,255,.10)'
-      : tone === 'warning'
-      ? 'rgba(245,185,66,.12)'
-      : 'rgba(255,93,93,.12)';
-
-  const border =
-    tone === 'good'
-      ? 'rgba(25,195,125,.28)'
-      : tone === 'neutral'
-      ? 'rgba(122,162,255,.25)'
-      : tone === 'warning'
-      ? 'rgba(245,185,66,.28)'
-      : 'rgba(255,93,93,.28)';
-
-  return (
-    <div
-      className="card"
-      style={{
-        background: bg,
-        border: `1px solid ${border}`,
-      }}
-    >
-      <div className="space-between" style={{ alignItems: 'center' }}>
-        <h2 style={{ margin: 0, fontSize: 18 }}>{title}</h2>
-        <LocationBadge location={location} />
-      </div>
-
-      <div className="metric-grid two" style={{ marginTop: 14 }}>
-        <Metric label="Setup Quality" value={`${quality}/100`} />
-        <Metric label="Risk State" value={riskState} />
-      </div>
-
-      <div className="metric" style={{ marginTop: 12 }}>
-        <div className="label">Execution note</div>
-        <div className="value">{note}</div>
-      </div>
-    </div>
-  );
-}
-
-function ExecutionCardV2({
-  title,
-  score,
-  preferred,
-  reasons,
-  note,
-  tone,
-}: {
-  title: string;
-  score: number;
-  preferred: boolean;
-  reasons: string[];
-  note: string;
-  tone: 'good' | 'warning' | 'bad';
-}) {
-  const bg =
-    tone === 'good'
-      ? 'rgba(25,195,125,.12)'
-      : tone === 'warning'
-      ? 'rgba(245,185,66,.12)'
-      : 'rgba(255,93,93,.12)';
-
-  const border =
-    tone === 'good'
-      ? 'rgba(25,195,125,.28)'
-      : tone === 'warning'
-      ? 'rgba(245,185,66,.28)'
-      : 'rgba(255,93,93,.28)';
-
-  return (
-    <div
-      className="card"
-      style={{
-        background: bg,
-        border: `1px solid ${border}`,
-      }}
-    >
-      <div className="space-between" style={{ alignItems: 'center', gap: 12 }}>
-        <h2 style={{ margin: 0, fontSize: 18 }}>{title}</h2>
-        <span className={`badge ${preferred ? 'bullish' : 'neutral'}`}>
-          {preferred ? 'PREFERRED' : 'SECONDARY'}
-        </span>
-      </div>
-
-      <div className="metric-grid two" style={{ marginTop: 14 }}>
-        <Metric label="Execution Score" value={`${score}/100`} />
-        <Metric
-          label="Setup Quality"
-          value={
-            score >= 80
-              ? 'Very Strong'
-              : score >= 70
-              ? 'Strong'
-              : score >= 60
-              ? 'Usable'
-              : score >= 50
-              ? 'Mixed'
-              : 'Weak'
-          }
+        <MetricCard label="Total Trades" value={String(total)} tone="neutral" />
+        <MetricCard label="Wins" value={String(wins)} tone="green" />
+        <MetricCard label="Losses" value={String(losses)} tone="red" />
+        <MetricCard label="Break-even" value={String(breakEvens)} tone="yellow" />
+        <MetricCard label="Skipped" value={String(skipped)} tone="blue" />
+        <MetricCard
+          label="Win Rate"
+          value={`${winRate}%`}
+          tone={winRate >= 55 ? "green" : winRate >= 40 ? "yellow" : "red"}
         />
       </div>
 
-      <div className="metric" style={{ marginTop: 12 }}>
-        <div className="label">Execution note</div>
-        <div className="value">{note}</div>
-      </div>
-
-      <div className="metric" style={{ marginTop: 12 }}>
-        <div className="label">Why</div>
-        <div className="value" style={{ fontSize: 15, lineHeight: 1.55 }}>
-          {reasons.length ? (
-            <ul style={{ margin: 0, paddingLeft: 18 }}>
-              {reasons.map((reason, i) => (
-                <li key={i} style={{ marginBottom: 6 }}>
-                  {reason}
-                </li>
-              ))}
-            </ul>
-          ) : (
-            'No strong reasons available yet.'
-          )}
+      {/* Card 3: Mistake Patterns */}
+      <div style={cardStyle({ marginBottom: 18 })}>
+        <div
+          style={{
+            marginBottom: 14,
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: 12,
+            flexWrap: "wrap",
+          }}
+        >
+          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#fff" }}>Mistake Patterns</h3>
+          <Badge tone={topMistake ? "red" : "green"}>
+            {topMistake ? `TOP: ${topMistake}` : "NO MISTAKES LOGGED"}
+          </Badge>
         </div>
-      </div>
-    </div>
-  );
-}
 
-function SetupExplainCard({
-  title,
-  direction,
-  whyItems,
-  confirmationItems,
-  invalidationItems,
-  avoidTradeReason,
-}: {
-  title: string;
-  direction: string;
-  whyItems: string[];
-  confirmationItems: string[];
-  invalidationItems: string[];
-  avoidTradeReason: string;
-}) {
-  const badgeClass =
-    direction === 'LONG' ? 'bullish' : direction === 'SHORT' ? 'bearish' : 'neutral';
-
-  return (
-    <div className="card">
-      <div className="space-between" style={{ alignItems: 'center', gap: 12 }}>
-        <h2 style={{ margin: 0 }}>{title}</h2>
-        <span className={`badge ${badgeClass}`}>{direction}</span>
-      </div>
-
-      <div className="grid" style={{ gap: 12, marginTop: 16 }}>
-        <ExplainList title="Why" items={whyItems} />
-        <ExplainList title="What confirms this?" items={confirmationItems} />
-        <ExplainList title="What invalidates this?" items={invalidationItems} />
-        <div className="metric">
-          <div className="label">Avoid trade if</div>
-          <div className="value">{avoidTradeReason}</div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ExplainList({ title, items }: { title: string; items: string[] }) {
-  return (
-    <div className="metric">
-      <div className="label" style={{ marginBottom: 8 }}>{title}</div>
-      <div className="value" style={{ fontSize: 15, lineHeight: 1.55 }}>
-        {items.length ? (
-          <ul style={{ margin: 0, paddingLeft: 18 }}>
-            {items.map((item, i) => (
-              <li key={i} style={{ marginBottom: 6 }}>
-                {item}
-              </li>
+        <div
+          style={{
+            display: "grid",
+            gap: 10,
+            gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+          }}
+        >
+          {(Object.keys(mistakeCounts) as JournalMistakeTag[])
+            .filter((k) => k !== "none")
+            .map((k) => (
+              <div
+                key={k}
+                style={{
+                  border: "1px solid rgba(255,255,255,0.10)",
+                  background: "rgba(0,0,0,0.20)",
+                  borderRadius: 14,
+                  padding: 12,
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  gap: 8,
+                }}
+              >
+                <span style={{ fontSize: 13, color: "rgba(255,255,255,0.82)" }}>{k}</span>
+                <span style={{ fontSize: 14, fontWeight: 800, color: "#fff" }}>
+                  {mistakeCounts[k]}
+                </span>
+              </div>
             ))}
-          </ul>
+        </div>
+      </div>
+
+      {/* Card 4: Recent Trades */}
+      <div style={cardStyle()}>
+        <div
+          style={{
+            marginBottom: 14,
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: 12,
+            flexWrap: "wrap",
+          }}
+        >
+          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#fff" }}>Recent Trades</h3>
+          <span style={{ fontSize: 12, color: "rgba(255,255,255,0.42)" }}>
+            Showing {Math.min(entries.length, 20)} of {entries.length}
+          </span>
+        </div>
+
+        {!hydrated ? (
+          <p style={{ margin: 0, fontSize: 13, color: "rgba(255,255,255,0.55)" }}>
+            Loading journal…
+          </p>
+        ) : entries.length === 0 ? (
+          <p style={{ margin: 0, fontSize: 13, color: "rgba(255,255,255,0.55)" }}>
+            No trades logged yet. Use the form above to add your first one.
+          </p>
         ) : (
-          'No details available.'
+          <div style={{ display: "grid", gap: 12 }}>
+            {entries.slice(0, 20).map((e) => {
+              const sideTone: Tone = e.side === "long" ? "green" : "red";
+              const resultTone: Tone =
+                e.result === "win"
+                  ? "green"
+                  : e.result === "loss"
+                  ? "red"
+                  : e.result === "break-even"
+                  ? "yellow"
+                  : "blue";
+              return (
+                <div
+                  key={e.id}
+                  style={{
+                    border: "1px solid rgba(255,255,255,0.10)",
+                    background: "rgba(0,0,0,0.22)",
+                    borderRadius: 16,
+                    padding: 14,
+                    display: "grid",
+                    gap: 8,
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      gap: 10,
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                      <Badge tone={sideTone}>{e.side.toUpperCase()}</Badge>
+                      <Badge tone={resultTone}>{e.result.toUpperCase()}</Badge>
+                      <span style={{ fontSize: 12, color: "rgba(255,255,255,0.55)" }}>
+                        {formatJournalDateUTC(e.createdAt)}
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => deleteEntry(e.id)}
+                      style={{
+                        borderRadius: 10,
+                        border: "1px solid rgba(239,68,68,0.28)",
+                        background: "rgba(239,68,68,0.10)",
+                        color: "#fca5a5",
+                        padding: "6px 10px",
+                        fontSize: 12,
+                        fontWeight: 700,
+                        cursor: "pointer",
+                      }}
+                    >
+                      Delete
+                    </button>
+                  </div>
+
+                  <div
+                    style={{
+                      display: "grid",
+                      gap: 6,
+                      gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+                      fontSize: 13,
+                      color: "rgba(255,255,255,0.82)",
+                    }}
+                  >
+                    <div>Entry: <strong style={{ color: "#fff" }}>{e.entry ?? "—"}</strong></div>
+                    <div>Stop: <strong style={{ color: "#fff" }}>{e.stop ?? "—"}</strong></div>
+                    <div>TP: <strong style={{ color: "#fff" }}>{e.tp ?? "—"}</strong></div>
+                    <div>Setup: <strong style={{ color: "#fff" }}>{e.setupType}</strong></div>
+                    <div>Regime: <strong style={{ color: "#fff" }}>{e.regimeAtEntry}</strong></div>
+                    <div>Gate: <strong style={{ color: "#fff" }}>{e.tradeGateAtEntry}</strong></div>
+                    <div>Risk: <strong style={{ color: "#fff" }}>{e.riskPresetUsed}</strong></div>
+                    <div>Mistake: <strong style={{ color: "#fff" }}>{e.mistakeTag}</strong></div>
+                  </div>
+
+                  {e.notes ? (
+                    <p
+                      style={{
+                        margin: 0,
+                        fontSize: 13,
+                        color: "rgba(255,255,255,0.72)",
+                        borderTop: "1px solid rgba(255,255,255,0.08)",
+                        paddingTop: 8,
+                      }}
+                    >
+                      {e.notes}
+                    </p>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
         )}
       </div>
-    </div>
+    </section>
   );
 }
 
-function LocationBadge({ location }: { location: ExecutionLocation }) {
-  const cls =
-    location === 'active'
-      ? 'bullish'
-      : location === 'early'
-      ? 'neutral'
-      : location === 'late'
-      ? 'warn'
-      : 'bearish';
 
-  return <span className={`badge ${cls}`}>{location}</span>;
-}
+export default function DashboardClientPhase62() {
+  const [panelData, setPanelData] = useState<RegimeResponse | null>(null);
 
-function ChartLabel({
-  x,
-  y,
-  text,
-  color,
-}: {
-  x: number;
-  y: number;
-  text: string;
-  color: string;
-}) {
-  return (
-    <text x={x} y={y} fontSize="11" fill={color} fontWeight="700">
-      {text}
-    </text>
-  );
-}
-
-function StatusDelta({ change }: { change: number }) {
-  const positive = change >= 0;
+  useEffect(() => {
+    let mounted = true;
+    async function load() {
+      try {
+        const res = await fetch("/api/regime", { cache: "no-store" });
+        const json = await res.json();
+        if (mounted) setPanelData(json);
+      } catch {}
+    }
+    load();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   return (
-    <span className={`badge ${positive ? 'bullish' : 'bearish'}`}>
-      {positive ? (
-        <TrendingUp size={14} style={{ marginRight: 4 }} />
-      ) : (
-        <TrendingDown size={14} style={{ marginRight: 4 }} />
-      )}
-      {fmt(change, 2)}%
-    </span>
-  );
-}
-
-function StatusBadge({ mode }: { mode: LiveMode }) {
-  if (mode === 'live-binance') return <span className="badge bullish">Live: Binance</span>;
-  if (mode === 'live-coingecko') return <span className="badge neutral">Live: CoinGecko</span>;
-  if (mode === 'loading') return <span className="badge warn">Loading live...</span>;
-  if (mode === 'failed') return <span className="badge bearish">Live fetch failed</span>;
-  return <span className="badge">Fallback snapshot</span>;
-}
-
-function SignalTypeBadge({ type }: { type: SignalCard['type'] }) {
-  const map: Record<SignalCard['type'], { label: string; cls: string; icon: ReactNode }> = {
-    'confirmed-long': {
-      label: 'Confirmed',
-      cls: 'bullish',
-      icon: <Zap size={13} style={{ marginRight: 4 }} />,
-    },
-    'aggressive-long': {
-      label: 'Aggressive',
-      cls: 'bullish',
-      icon: <TrendingUp size={13} style={{ marginRight: 4 }} />,
-    },
-    'confirmed-short': {
-      label: 'Confirmed',
-      cls: 'bearish',
-      icon: <Zap size={13} style={{ marginRight: 4 }} />,
-    },
-    'aggressive-short': {
-      label: 'Aggressive',
-      cls: 'bearish',
-      icon: <TrendingDown size={13} style={{ marginRight: 4 }} />,
-    },
-    'breakout-watch': {
-      label: 'Breakout Watch',
-      cls: 'neutral',
-      icon: <Activity size={13} style={{ marginRight: 4 }} />,
-    },
-    'liquidity-sweep-watch': {
-      label: 'Sweep Watch',
-      cls: 'neutral',
-      icon: <AlertTriangle size={13} style={{ marginRight: 4 }} />,
-    },
-    wait: {
-      label: 'Wait',
-      cls: 'warn',
-      icon: <AlertTriangle size={13} style={{ marginRight: 4 }} />,
-    },
-  };
-
-  const item = map[type];
-
-  return (
-    <span className={`badge ${item.cls}`}>
-      {item.icon}
-      {item.label}
-    </span>
-  );
-}
-
-function StrengthBadge({ strength }: { strength: SignalCard['strength'] }) {
-  const cls = strength === 'high' ? 'bullish' : strength === 'medium' ? 'neutral' : 'warn';
-  return <span className={`badge ${cls}`}>Strength: {strength}</span>;
-}
-
-function ScenarioCard({
-  title,
-  direction,
-  entry,
-  stop,
-  targets,
-  rr,
-  invalidation,
-}: {
-  title: string;
-  direction: 'bullish' | 'bearish';
-  entry: string;
-  stop: string;
-  targets: string[];
-  rr: number;
-  invalidation: string;
-}) {
-  return (
-    <div className="card">
-      <div className="space-between">
-        <h2 style={{ margin: 0 }}>{title}</h2>
-        <span className={`badge ${direction}`}>{direction}</span>
+    <main style={{ minHeight: "100vh", background: "#05070d", color: "#fff" }}>
+      <div
+        style={{
+          maxWidth: 1280,
+          margin: "0 auto",
+          padding: "24px 16px 48px",
+          display: "grid",
+          gap: 24,
+        }}
+      >
+        <DashboardClientPhase60Base />
+        <RegimePanel />
+        <PositionSizingPanel data={panelData} />
+        <ExecutionPlanPanel data={panelData} />
+        <TradeJournalPanel data={panelData} />
       </div>
-
-      <div className="metric-grid two" style={{ marginTop: 16 }}>
-        <Metric label="Entry" value={entry} />
-        <Metric label="Stop" value={stop} />
-        <Metric label="Targets" value={targets.join(' / ')} />
-        <Metric label="R:R" value={Number.isFinite(rr) ? rr.toFixed(2) : '—'} />
-      </div>
-
-      <div className="metric" style={{ marginTop: 12 }}>
-        <div className="value">Invalidation: {invalidation}</div>
-      </div>
-    </div>
+    </main>
   );
 }
+
