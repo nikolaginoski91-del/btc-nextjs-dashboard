@@ -1036,6 +1036,415 @@ function ExecutionPlanPanel({ data }: { data: RegimeResponse | null }) {
 
 
 /* ------------------------------------------------------------------ */
+/* Phase 6.8 — Hero Decision Section                                   */
+/* Additive. Renders at the very top of the dashboard.                 */
+/* Uses RegimeResponse already fetched by the main component.          */
+/* ------------------------------------------------------------------ */
+
+function HeroDecisionPanel({ data }: { data: RegimeResponse | null }) {
+  const tradeGate = data?.tradeGate ?? deriveTradeGate(data?.result);
+  const bias = data?.result?.directionBias;
+  const price = data?.input?.price ?? 0;
+  const confidence = data?.result?.confidence ?? 0;
+  const regime = data?.result?.regime ?? "—";
+  const condition = data?.result?.tradeCondition ?? "—";
+  const summary = data?.result?.summary ?? "Loading market data…";
+  const operatorNote = data?.result?.operatorNote ?? "";
+
+  // ── Core decision logic ────────────────────────────────────────────
+  type Decision = {
+    label: string;
+    sublabel: string;
+    icon: string;
+    color: string;
+    glow: string;
+    bg: string;
+    border: string;
+    badgeTone: Tone;
+  };
+
+  let decision: Decision;
+
+  if (!data) {
+    decision = {
+      label: "LOADING",
+      sublabel: "Fetching live regime data…",
+      icon: "◷",
+      color: "rgba(255,255,255,0.45)",
+      glow: "none",
+      bg: "rgba(255,255,255,0.04)",
+      border: "rgba(255,255,255,0.10)",
+      badgeTone: "neutral",
+    };
+  } else if (tradeGate.status === "TRADE FILTERED") {
+    decision = {
+      label: "DO NOT TRADE",
+      sublabel: "Market conditions are filtered. Stand down.",
+      icon: "✕",
+      color: "#f87171",
+      glow: "0 0 48px rgba(239,68,68,0.22)",
+      bg: "rgba(239,68,68,0.08)",
+      border: "rgba(239,68,68,0.22)",
+      badgeTone: "red",
+    };
+  } else if (tradeGate.status === "WAIT FOR CONFIRMATION") {
+    decision = {
+      label: "WAIT",
+      sublabel: "Setup is forming. No clean trigger yet.",
+      icon: "◷",
+      color: "#fcd34d",
+      glow: "0 0 48px rgba(245,158,11,0.20)",
+      bg: "rgba(245,158,11,0.07)",
+      border: "rgba(245,158,11,0.22)",
+      badgeTone: "yellow",
+    };
+  } else if (bias === "BULLISH") {
+    decision = {
+      label: "LONG READY",
+      sublabel: "Bias and gate align. Wait for trigger confirmation.",
+      icon: "↑",
+      color: "#34d399",
+      glow: "0 0 56px rgba(16,185,129,0.24)",
+      bg: "rgba(16,185,129,0.08)",
+      border: "rgba(16,185,129,0.24)",
+      badgeTone: "green",
+    };
+  } else if (bias === "BEARISH") {
+    decision = {
+      label: "SHORT READY",
+      sublabel: "Bias and gate align. Wait for rejection confirmation.",
+      icon: "↓",
+      color: "#f87171",
+      glow: "0 0 56px rgba(239,68,68,0.24)",
+      bg: "rgba(239,68,68,0.08)",
+      border: "rgba(239,68,68,0.24)",
+      badgeTone: "red",
+    };
+  } else {
+    decision = {
+      label: "SELECTIVE",
+      sublabel: "Bias is neutral. Only the cleanest setups qualify.",
+      icon: "→",
+      color: "#93c5fd",
+      glow: "0 0 40px rgba(59,130,246,0.20)",
+      bg: "rgba(59,130,246,0.07)",
+      border: "rgba(59,130,246,0.22)",
+      badgeTone: "blue",
+    };
+  }
+
+  const score = tradeGate.score;
+  const scoreFill =
+    score >= 70 ? "#34d399" : score >= 45 ? "#fbbf24" : "#f87171";
+
+  const regimeTone: Tone =
+    regime === "TRENDING_BULL"
+      ? "green"
+      : regime === "TRENDING_BEAR"
+      ? "red"
+      : regime === "BREAKOUT_WATCH"
+      ? "blue"
+      : regime === "RANGE"
+      ? "yellow"
+      : "neutral";
+
+  const conditionTone: Tone =
+    condition === "FAVORABLE" ? "green" : condition === "DEFENSIVE" ? "red" : "yellow";
+
+  const biasTone: Tone =
+    bias === "BULLISH" ? "green" : bias === "BEARISH" ? "red" : "neutral";
+
+  // Rough key levels from live price (visual reference only)
+  const longZoneLow = price > 0 ? Math.round(price * 0.9935) : 0;
+  const longZoneHigh = price > 0 ? Math.round(price * 0.997) : 0;
+  const shortZoneLow = price > 0 ? Math.round(price * 1.003) : 0;
+  const shortZoneHigh = price > 0 ? Math.round(price * 1.007) : 0;
+  const longStop = price > 0 ? Math.round(price * 0.988) : 0;
+  const shortStop = price > 0 ? Math.round(price * 1.011) : 0;
+
+  function fmtPrice(n: number) {
+    return n > 0 ? `$${n.toLocaleString()}` : "—";
+  }
+
+  return (
+    <section
+      style={{
+        width: "100%",
+        borderRadius: 28,
+        border: `1px solid ${decision.border}`,
+        background: `linear-gradient(135deg, ${decision.bg} 0%, rgba(5,7,13,0.98) 60%)`,
+        padding: "28px 24px",
+        boxShadow: decision.glow,
+        color: "#fff",
+        position: "relative",
+        overflow: "hidden",
+      }}
+    >
+      {/* Subtle background glow blob */}
+      <div
+        style={{
+          position: "absolute",
+          top: -60,
+          left: -40,
+          width: 280,
+          height: 280,
+          borderRadius: "50%",
+          background: decision.color,
+          opacity: 0.04,
+          filter: "blur(60px)",
+          pointerEvents: "none",
+        }}
+      />
+
+      {/* Phase label */}
+      <p
+        style={{
+          margin: "0 0 20px 0",
+          fontSize: 11,
+          textTransform: "uppercase",
+          letterSpacing: "0.22em",
+          color: "rgba(103,232,249,0.65)",
+        }}
+      >
+        Phase 6.8 · Operator Decision
+      </p>
+
+      {/* Main layout: decision left, metrics right */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1fr auto",
+          gap: 24,
+          alignItems: "start",
+        }}
+      >
+        {/* LEFT: Decision */}
+        <div>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 16,
+              flexWrap: "wrap",
+              marginBottom: 10,
+            }}
+          >
+            {/* Icon bubble */}
+            <div
+              style={{
+                width: 52,
+                height: 52,
+                borderRadius: "50%",
+                background: decision.bg,
+                border: `2px solid ${decision.border}`,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: 24,
+                color: decision.color,
+                flexShrink: 0,
+              }}
+            >
+              {decision.icon}
+            </div>
+
+            {/* Decision text */}
+            <div>
+              <div
+                style={{
+                  fontSize: 46,
+                  fontWeight: 900,
+                  color: decision.color,
+                  letterSpacing: "-0.02em",
+                  lineHeight: 1,
+                }}
+              >
+                {decision.label}
+              </div>
+              <div
+                style={{
+                  marginTop: 6,
+                  fontSize: 14,
+                  color: "rgba(255,255,255,0.65)",
+                  fontWeight: 500,
+                }}
+              >
+                {decision.sublabel}
+              </div>
+            </div>
+          </div>
+
+          {/* Summary from regime engine */}
+          <div
+            style={{
+              marginTop: 14,
+              padding: "12px 16px",
+              borderRadius: 16,
+              background: "rgba(255,255,255,0.04)",
+              border: "1px solid rgba(255,255,255,0.08)",
+              fontSize: 14,
+              color: "rgba(255,255,255,0.80)",
+              lineHeight: 1.6,
+              maxWidth: 680,
+            }}
+          >
+            <strong style={{ color: "#fff" }}>{summary}</strong>
+            {operatorNote && (
+              <span style={{ color: "rgba(255,255,255,0.58)" }}>
+                {" "}— {operatorNote}
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* RIGHT: Score ring */}
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: 8,
+            minWidth: 90,
+          }}
+        >
+          {/* Score circle */}
+          <div
+            style={{
+              width: 84,
+              height: 84,
+              borderRadius: "50%",
+              background: `conic-gradient(${scoreFill} ${score * 3.6}deg, rgba(255,255,255,0.08) 0deg)`,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              position: "relative",
+            }}
+          >
+            <div
+              style={{
+                width: 64,
+                height: 64,
+                borderRadius: "50%",
+                background: "#05070d",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <span style={{ fontSize: 22, fontWeight: 800, color: scoreFill, lineHeight: 1 }}>
+                {score}
+              </span>
+              <span style={{ fontSize: 10, color: "rgba(255,255,255,0.45)", letterSpacing: "0.05em" }}>
+                /100
+              </span>
+            </div>
+          </div>
+          <span
+            style={{
+              fontSize: 11,
+              textTransform: "uppercase",
+              letterSpacing: "0.12em",
+              color: "rgba(255,255,255,0.45)",
+            }}
+          >
+            Gate Score
+          </span>
+        </div>
+      </div>
+
+      {/* Divider */}
+      <div
+        style={{
+          height: 1,
+          background: "rgba(255,255,255,0.07)",
+          margin: "20px 0",
+        }}
+      />
+
+      {/* Bottom row: 4 metric badges + key levels */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+          gap: 12,
+        }}
+      >
+        {/* Gate status */}
+        <div style={cardStyle()}>
+          <p style={labelStyle()}>Trade Gate</p>
+          <Badge
+            tone={
+              tradeGate.status === "TRADE ALLOWED"
+                ? "green"
+                : tradeGate.status === "TRADE FILTERED"
+                ? "red"
+                : "yellow"
+            }
+          >
+            {tradeGate.status}
+          </Badge>
+        </div>
+
+        {/* Regime */}
+        <div style={cardStyle()}>
+          <p style={labelStyle()}>Regime</p>
+          <Badge tone={regimeTone}>{regime}</Badge>
+        </div>
+
+        {/* Bias */}
+        <div style={cardStyle()}>
+          <p style={labelStyle()}>Direction Bias</p>
+          <Badge tone={biasTone}>{bias ?? "—"}</Badge>
+        </div>
+
+        {/* Condition */}
+        <div style={cardStyle()}>
+          <p style={labelStyle()}>Trade Condition</p>
+          <Badge tone={conditionTone}>{condition}</Badge>
+        </div>
+
+        {/* Confidence */}
+        <div style={cardStyle()}>
+          <p style={labelStyle()}>Confidence</p>
+          <div style={{ fontSize: 22, fontWeight: 800, color: "#fff" }}>{confidence}%</div>
+        </div>
+
+        {/* Long zone */}
+        <div style={cardStyle()}>
+          <p style={labelStyle()}>Long Watch Zone</p>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "#34d399" }}>
+            {fmtPrice(longZoneLow)} – {fmtPrice(longZoneHigh)}
+          </div>
+          <div style={{ marginTop: 4, fontSize: 11, color: "rgba(255,255,255,0.45)" }}>
+            Stop below {fmtPrice(longStop)}
+          </div>
+        </div>
+
+        {/* Short zone */}
+        <div style={cardStyle()}>
+          <p style={labelStyle()}>Short Watch Zone</p>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "#f87171" }}>
+            {fmtPrice(shortZoneLow)} – {fmtPrice(shortZoneHigh)}
+          </div>
+          <div style={{ marginTop: 4, fontSize: 11, color: "rgba(255,255,255,0.45)" }}>
+            Stop above {fmtPrice(shortStop)}
+          </div>
+        </div>
+
+        {/* Gate reason */}
+        <div style={cardStyle()}>
+          <p style={labelStyle()}>Gate Reason</p>
+          <div style={{ fontSize: 12, color: "rgba(255,255,255,0.75)", lineHeight: 1.5 }}>
+            {tradeGate.reason}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /* Phase 6.7 — Trade Journal + Outcome Tracker                         */
 /* Additive. localStorage only. No backend.                            */
 /* Types are declared locally here to keep this panel self-contained   */
@@ -1764,6 +2173,7 @@ export default function DashboardClientPhase62() {
           gap: 24,
         }}
       >
+        <HeroDecisionPanel data={panelData} />
         <DashboardClientPhase60Base />
         <RegimePanel />
         <PositionSizingPanel data={panelData} />
@@ -1773,4 +2183,3 @@ export default function DashboardClientPhase62() {
     </main>
   );
 }
-
