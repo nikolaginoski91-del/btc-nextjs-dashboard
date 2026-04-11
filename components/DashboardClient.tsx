@@ -1041,10 +1041,17 @@ function ExecutionPlanPanel({ data }: { data: RegimeResponse | null }) {
 /* Uses RegimeResponse already fetched by the main component.          */
 /* ------------------------------------------------------------------ */
 
-function HeroDecisionPanel({ data }: { data: RegimeResponse | null }) {
+function HeroDecisionPanel({
+  data,
+  livePrice,
+}: {
+  data: RegimeResponse | null;
+  livePrice: number;
+}) {
   const tradeGate = data?.tradeGate ?? deriveTradeGate(data?.result);
   const bias = data?.result?.directionBias;
-  const price = data?.input?.price ?? 0;
+  // Prefer the separately-fetched live price; fall back to regime input price
+  const price = livePrice > 0 ? livePrice : (data?.input?.price ?? 0);
   const confidence = data?.result?.confidence ?? 0;
   const regime = data?.result?.regime ?? "—";
   const condition = data?.result?.tradeCondition ?? "—";
@@ -2146,9 +2153,11 @@ function TradeJournalPanel({ data }: { data: RegimeResponse | null }) {
 
 export default function DashboardClientPhase62() {
   const [panelData, setPanelData] = useState<RegimeResponse | null>(null);
+  const [livePrice, setLivePrice] = useState<number>(0);
 
   useEffect(() => {
     let mounted = true;
+
     async function load() {
       try {
         const res = await fetch("/api/regime", { cache: "no-store" });
@@ -2156,7 +2165,39 @@ export default function DashboardClientPhase62() {
         if (mounted) setPanelData(json);
       } catch {}
     }
+
+    async function fetchLivePrice() {
+      try {
+        // Try Binance first — simple ticker endpoint, no API key needed
+        const res = await fetch(
+          "https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT",
+          { cache: "no-store" }
+        );
+        const json = await res.json();
+        const p = parseFloat(json?.price);
+        if (mounted && Number.isFinite(p) && p > 0) {
+          setLivePrice(p);
+          return;
+        }
+      } catch {}
+
+      try {
+        // Fallback: CoinGecko simple price
+        const res = await fetch(
+          "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd",
+          { cache: "no-store" }
+        );
+        const json = await res.json();
+        const p = json?.bitcoin?.usd;
+        if (mounted && Number.isFinite(p) && p > 0) {
+          setLivePrice(p);
+        }
+      } catch {}
+    }
+
     load();
+    fetchLivePrice();
+
     return () => {
       mounted = false;
     };
@@ -2173,7 +2214,7 @@ export default function DashboardClientPhase62() {
           gap: 24,
         }}
       >
-        <HeroDecisionPanel data={panelData} />
+        <HeroDecisionPanel data={panelData} livePrice={livePrice} />
         <DashboardClientPhase60Base />
         <RegimePanel />
         <PositionSizingPanel data={panelData} />
@@ -2183,3 +2224,4 @@ export default function DashboardClientPhase62() {
     </main>
   );
 }
+
